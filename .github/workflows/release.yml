@@ -68,8 +68,18 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package
-        shell: bash
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "ccc-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $staging | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/ccc${{ matrix.ext }}" "$staging/"
+          Copy-Item -Recurse "default/.claude" "$staging/"
+          Compress-Archive -Path "$staging/*" -DestinationPath "$staging.zip"
+
+      - name: Package (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           STAGING="ccc-${{ matrix.target }}"
           mkdir -p "$STAGING"
