@@ -2,35 +2,37 @@ $ErrorActionPreference = "Stop"
 
 $CccHome = "$env:USERPROFILE\.ccc"
 $Repo = "ducphanvanntq/ccc"
-$ExeAsset = "ccc-x86_64-pc-windows-msvc.exe"
-$ConfigAsset = "default-claude-config.zip"
+$AssetName = "ccc-x86_64-pc-windows-msvc.zip"
 
 Write-Host "Fetching latest release..." -ForegroundColor Cyan
 $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+$Asset = ($Release.assets | Where-Object { $_.name -eq $AssetName })
 
-$ExeUrl = ($Release.assets | Where-Object { $_.name -eq $ExeAsset }).browser_download_url
-$ConfigUrl = ($Release.assets | Where-Object { $_.name -eq $ConfigAsset }).browser_download_url
-
-if (-not $ExeUrl -or -not $ConfigUrl) {
-    Write-Host "Release assets not found!" -ForegroundColor Red
+if (-not $Asset) {
+    Write-Host "Release asset not found!" -ForegroundColor Red
     exit 1
 }
 
-# Create install directory
+# Download zip
+Write-Host "Downloading $AssetName..." -ForegroundColor Cyan
+$TmpZip = "$env:TEMP\ccc.zip"
+Invoke-WebRequest -Uri $Asset.browser_download_url -OutFile $TmpZip
+
+# Extract to temp, then copy contents to CccHome
+$TmpDir = "$env:TEMP\ccc-extract"
+if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force }
+Expand-Archive -Path $TmpZip -DestinationPath $TmpDir -Force
+
+# Copy from extracted folder to CccHome
+$ExtractedDir = Get-ChildItem $TmpDir | Select-Object -First 1
 if (-not (Test-Path $CccHome)) {
     New-Item -ItemType Directory -Path $CccHome | Out-Null
 }
+Copy-Item -Path "$($ExtractedDir.FullName)\*" -Destination $CccHome -Recurse -Force
 
-# Download exe
-Write-Host "Downloading ccc.exe..." -ForegroundColor Cyan
-Invoke-WebRequest -Uri $ExeUrl -OutFile "$CccHome\ccc.exe"
-
-# Download and extract default config
-Write-Host "Downloading default config..." -ForegroundColor Cyan
-$TmpZip = "$env:TEMP\ccc-config.zip"
-Invoke-WebRequest -Uri $ConfigUrl -OutFile $TmpZip
-Expand-Archive -Path $TmpZip -DestinationPath $CccHome -Force
+# Cleanup
 Remove-Item $TmpZip
+Remove-Item $TmpDir -Recurse -Force
 
 # Add to PATH
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")

@@ -19,34 +19,33 @@ case "$OS" in
     *) echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 
-ASSET_NAME="ccc-${TARGET}"
-CONFIG_ASSET="default-claude-config.zip"
+ASSET_NAME="ccc-${TARGET}.zip"
 
 echo "Fetching latest release..."
-RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
+DOWNLOAD_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+    | grep "browser_download_url.*$ASSET_NAME\"" \
+    | cut -d '"' -f 4)
 
-DOWNLOAD_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*$ASSET_NAME\"" | cut -d '"' -f 4)
-CONFIG_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*$CONFIG_ASSET\"" | cut -d '"' -f 4)
-
-if [ -z "$DOWNLOAD_URL" ] || [ -z "$CONFIG_URL" ]; then
-    echo "Failed to get download URLs!"
+if [ -z "$DOWNLOAD_URL" ]; then
+    echo "Failed to get download URL!"
     exit 1
 fi
 
-# Create install directory
-mkdir -p "$CCC_HOME"
-
-# Download binary
+# Download zip
 echo "Downloading $ASSET_NAME..."
-curl -fsSL "$DOWNLOAD_URL" -o "$CCC_HOME/ccc"
+TMP_ZIP=$(mktemp)
+TMP_DIR=$(mktemp -d)
+curl -fsSL "$DOWNLOAD_URL" -o "$TMP_ZIP"
+
+# Extract and copy to CccHome
+unzip -o "$TMP_ZIP" -d "$TMP_DIR"
+mkdir -p "$CCC_HOME"
+cp -r "$TMP_DIR"/ccc-*/* "$CCC_HOME/"
 chmod +x "$CCC_HOME/ccc"
 
-# Download and extract default config
-echo "Downloading default config..."
-TMP_ZIP=$(mktemp)
-curl -fsSL "$CONFIG_URL" -o "$TMP_ZIP"
-unzip -o "$TMP_ZIP" -d "$CCC_HOME"
+# Cleanup
 rm "$TMP_ZIP"
+rm -rf "$TMP_DIR"
 
 # Add to PATH
 SHELL_NAME="$(basename "$SHELL")"

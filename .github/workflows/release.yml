@@ -68,16 +68,20 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      - name: Package
         shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/ccc${{ matrix.ext }} ccc-${{ matrix.target }}${{ matrix.ext }}
+          STAGING="ccc-${{ matrix.target }}"
+          mkdir -p "$STAGING"
+          cp target/${{ matrix.target }}/release/ccc${{ matrix.ext }} "$STAGING/"
+          cp -r default/.claude "$STAGING/"
+          zip -r "$STAGING.zip" "$STAGING"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ccc-${{ matrix.target }}
-          path: ccc-${{ matrix.target }}${{ matrix.ext }}
+          path: ccc-${{ matrix.target }}.zip
 
   release:
     name: Create Release
@@ -91,18 +95,10 @@ jobs:
           git tag v${{ needs.check-version.outputs.version }}
           git push origin v${{ needs.check-version.outputs.version }}
 
-      - name: Package default config
-        run: |
-          cd default
-          zip -r ../default-claude-config.zip .claude/
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-
-      - name: Add default config to artifacts
-        run: cp default-claude-config.zip artifacts/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
