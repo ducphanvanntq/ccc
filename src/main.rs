@@ -69,7 +69,7 @@ fn main() {
 
             if !default_dir.exists() {
                 eprintln!("Default .claude folder not found at: {}", default_dir.display());
-                eprintln!("Please run install.bat first to set up the default config.");
+                eprintln!("Please run the install script first.");
                 std::process::exit(1);
             }
 
