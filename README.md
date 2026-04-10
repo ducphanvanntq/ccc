@@ -29,6 +29,9 @@ ccc key
 # Init .claude config in current project
 ccc init
 
+# Show current config
+ccc show
+
 # Show version
 ccc version
 ```
@@ -65,6 +68,9 @@ ccc key
 
 # Khởi tạo cấu hình .claude trong project hiện tại
 ccc init
+
+# Xem cấu hình hiện tại
+ccc show
 
 # Xem phiên bản
 ccc version
