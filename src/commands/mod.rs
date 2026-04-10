@@ -1,3 +1,4 @@
+pub mod global;
 pub mod init;
 pub mod key;
 pub mod show;

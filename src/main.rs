@@ -17,8 +17,10 @@ enum Commands {
     Version,
     /// Copy default .claude config to current directory
     Init,
-    /// Show current config
+    /// Show current local config
     Show,
+    /// Show global default config
+    Global,
     /// Set ANTHROPIC_API_KEY in default config
     Key {
         /// API key value (if omitted, will prompt for input)
@@ -35,6 +37,7 @@ fn main() {
         Commands::Version => commands::version::run(),
         Commands::Init => commands::init::run(),
         Commands::Show => commands::show::run(),
+        Commands::Global => commands::global::run(),
         Commands::Key { key } => commands::key::run(key),
         Commands::Update => commands::update::run(),
     }
