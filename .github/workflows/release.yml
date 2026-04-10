@@ -96,7 +96,7 @@ jobs:
           New-Item -ItemType Directory -Path $staging | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/ccc${{ matrix.ext }}" "$staging/"
           Copy-Item -Recurse "default/.claude" "$staging/"
-          Compress-Archive -Path "$staging/*" -DestinationPath "$staging.zip"
+          Compress-Archive -Path $staging -DestinationPath "$staging.zip"
 
       - name: Package (Linux/macOS)
         if: runner.os != 'Windows'
