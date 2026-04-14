@@ -23,6 +23,14 @@ $TmpDir = "$env:TEMP\ccc-extract"
 if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force }
 Expand-Archive -Path $TmpZip -DestinationPath $TmpDir -Force
 
+# Rename old exe if running (Windows lock workaround)
+$OldExe = "$CccHome\ccc.old.exe"
+$ExePath = "$CccHome\ccc.exe"
+if (Test-Path $ExePath) {
+    if (Test-Path $OldExe) { Remove-Item $OldExe -Force }
+    Rename-Item $ExePath $OldExe -Force -ErrorAction SilentlyContinue
+}
+
 # Copy from extracted folder to CccHome
 $ExtractedDir = Get-ChildItem $TmpDir | Select-Object -First 1
 if (-not (Test-Path $CccHome)) {
