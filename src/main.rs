@@ -37,6 +37,8 @@ enum Commands {
     },
     /// Check for updates and install latest version
     Update,
+    /// Check environment and config status
+    Doctor,
 }
 
 fn main() {
@@ -48,5 +50,6 @@ fn main() {
         Commands::Show { target } => commands::show::run(target.unwrap_or(ShowTarget::Global)),
         Commands::Key { key } => commands::key::run(key),
         Commands::Update => commands::update::run(),
+        Commands::Doctor => commands::doctor::run(),
     }
 }
