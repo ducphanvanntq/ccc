@@ -2,13 +2,13 @@ mod commands;
 mod config;
 mod utils;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "ccc", about = "Claude Code Config CLI")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -45,11 +45,12 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Version => commands::version::run(),
-        Commands::Init => commands::init::run(),
-        Commands::Show { target } => commands::show::run(target.unwrap_or(ShowTarget::Global)),
-        Commands::Key { key } => commands::key::run(key),
-        Commands::Update => commands::update::run(),
-        Commands::Doctor => commands::doctor::run(),
+        Some(Commands::Version) => commands::version::run(),
+        Some(Commands::Init) => commands::init::run(),
+        Some(Commands::Show { target }) => commands::show::run(target.unwrap_or(ShowTarget::Global)),
+        Some(Commands::Key { key }) => commands::key::run(key),
+        Some(Commands::Update) => commands::update::run(),
+        Some(Commands::Doctor) => commands::doctor::run(),
+        None => Cli::command().print_help().unwrap(),
     }
 }
