@@ -39,6 +39,8 @@ enum Commands {
     Update,
     /// Check environment and config status
     Doctor,
+    /// Test API connection with current key
+    Check,
 }
 
 fn main() {
@@ -51,6 +53,7 @@ fn main() {
         Some(Commands::Key { key }) => commands::key::run(key),
         Some(Commands::Update) => commands::update::run(),
         Some(Commands::Doctor) => commands::doctor::run(),
+        Some(Commands::Check) => commands::check::run(),
         None => Cli::command().print_help().unwrap(),
     }
 }
