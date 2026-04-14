@@ -40,24 +40,12 @@ pub fn mask_key(key: &str) -> String {
     }
 }
 
-pub fn print_json_flat(value: &serde_json::Value, prefix: &str) {
-    match value {
-        serde_json::Value::Object(map) => {
-            for (k, v) in map {
-                let key = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{prefix}.{k}")
-                };
-                print_json_flat(v, &key);
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            let items: Vec<&str> = arr.iter().filter_map(serde_json::Value::as_str).collect();
-            println!("{prefix}=[{}]", items.join(", "));
-        }
-        _ => {
-            println!("{prefix}={}", value.to_string().trim_matches('"'));
+pub fn print_json_pretty(value: &serde_json::Value) {
+    match colored_json::to_colored_json(value, colored_json::ColorMode::Auto(colored_json::Output::StdOut)) {
+        Ok(colored) => println!("{colored}"),
+        Err(_) => {
+            let json_str = serde_json::to_string_pretty(value).expect("Failed to serialize JSON");
+            println!("{json_str}");
         }
     }
 }

@@ -12,15 +12,24 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+pub enum ShowTarget {
+    /// Show local config (fallback to global)
+    Config,
+    /// Show global default config
+    Global,
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// Show the current version
     Version,
     /// Copy default .claude config to current directory
     Init,
-    /// Show current local config
-    Show,
-    /// Show global default config
-    Global,
+    /// Show config (default: global)
+    Show {
+        #[command(subcommand)]
+        target: Option<ShowTarget>,
+    },
     /// Set ANTHROPIC_API_KEY in default config
     Key {
         /// API key value (if omitted, will prompt for input)
@@ -36,8 +45,7 @@ fn main() {
     match cli.command {
         Commands::Version => commands::version::run(),
         Commands::Init => commands::init::run(),
-        Commands::Show => commands::show::run(),
-        Commands::Global => commands::global::run(),
+        Commands::Show { target } => commands::show::run(target.unwrap_or(ShowTarget::Global)),
         Commands::Key { key } => commands::key::run(key),
         Commands::Update => commands::update::run(),
     }

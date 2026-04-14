@@ -29,8 +29,14 @@ ccc key
 # Init .claude config in current project
 ccc init
 
-# Show current config
-ccc show
+# Show current local config
+ccc show config
+
+# Show global default config
+ccc show global
+
+# Check for updates
+ccc update
 
 # Show version
 ccc version
@@ -69,8 +75,14 @@ ccc key
 # Khởi tạo cấu hình .claude trong project hiện tại
 ccc init
 
-# Xem cấu hình hiện tại
-ccc show
+# Xem cấu hình local hiện tại
+ccc show config
+
+# Xem cấu hình global mặc định
+ccc show global
+
+# Kiểm tra và cập nhật phiên bản mới
+ccc update
 
 # Xem phiên bản
 ccc version

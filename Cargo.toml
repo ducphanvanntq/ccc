@@ -6,6 +6,7 @@ description = "Claude Code Config CLI"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+colored_json = "5"
 serde_json = "1"
 ureq = "3"
 zip = "2"
