@@ -98,6 +98,17 @@ pub fn run() {
 
     // Find extracted folder and copy to ccc_home
     let ccc_home = ccc_home();
+
+    // On Windows, rename running exe before overwriting
+    if cfg!(target_os = "windows") {
+        let exe_path = ccc_home.join("ccc.exe");
+        let old_exe = ccc_home.join("ccc.old.exe");
+        if exe_path.exists() {
+            let _ = fs::remove_file(&old_exe);
+            fs::rename(&exe_path, &old_exe).ok();
+        }
+    }
+
     if let Ok(entries) = fs::read_dir(&tmp_dir) {
         for entry in entries.flatten() {
             if entry.path().is_dir() {
