@@ -1,9 +1,9 @@
 use dialoguer::{Select, Input, Confirm};
 use dialoguer::theme::ColorfulTheme;
+use serde_json::json;
 
-use crate::config::{local_settings_path, read_json, write_json, KeysStore};
+use crate::config::{default_settings_path, local_settings_path, read_json, write_json, KeysStore};
 use crate::utils::mask_key;
-use crate::commands::check;
 
 pub fn run(subcmd: Option<KeyCmd>) {
     match subcmd {
@@ -12,7 +12,7 @@ pub fn run(subcmd: Option<KeyCmd>) {
         Some(KeyCmd::Default { name }) => cmd_default(name),
         Some(KeyCmd::Use { name }) => cmd_use(name),
         Some(KeyCmd::Remove { name }) => cmd_remove(name),
-        Some(KeyCmd::Check) => check::run(),
+        Some(KeyCmd::Status) => cmd_status(),
         None => cmd_menu(),
     }
 }
@@ -43,36 +43,50 @@ pub enum KeyCmd {
         /// Key name (optional, shows list if omitted)
         name: Option<String>,
     },
-    /// Check if active key is valid
-    Check,
+    /// Check all keys status (test API connection)
+    Status,
+}
+
+fn wait_enter() {
+    use std::io::{self, Read};
+    println!();
+    print!("Press Enter to continue...");
+    io::Write::flush(&mut io::stdout()).ok();
+    let _ = io::stdin().read(&mut [0u8]);
 }
 
 fn cmd_menu() {
-    let theme = ColorfulTheme::default();
-    let items = vec![
-        "Add new key",
-        "List keys",
-        "Set default key",
-        "Use key (current folder)",
-        "Remove key",
-        "Check key",
-        "Exit",
-    ];
+    loop {
+        let store = KeysStore::load();
+        let key_count = store.keys.len();
+        let theme = ColorfulTheme::default();
+        let items = vec![
+            "Add new key",
+            "List keys",
+            "Set default key",
+            "Use key (current folder)",
+            "Remove key",
+            "Key status",
+            "Exit",
+        ];
 
-    let selection = Select::with_theme(&theme)
-        .with_prompt("Key manager")
-        .items(&items)
-        .default(0)
-        .interact();
+        let selection = Select::with_theme(&theme)
+            .with_prompt(format!("Key manager ({key_count})"))
+            .items(&items)
+            .default(0)
+            .interact();
 
-    match selection {
-        Ok(0) => cmd_add(None, None),
-        Ok(1) => cmd_list(),
-        Ok(2) => cmd_default(None),
-        Ok(3) => cmd_use(None),
-        Ok(4) => cmd_remove(None),
-        Ok(5) => check::run(),
-        _ => {}
+        match selection {
+            Ok(0) => { cmd_add(None, None); wait_enter(); },
+            Ok(1) => { cmd_list(); wait_enter(); },
+            Ok(2) => { cmd_default(None); wait_enter(); },
+            Ok(3) => { cmd_use(None); wait_enter(); },
+            Ok(4) => { cmd_remove(None); wait_enter(); },
+            Ok(5) => { cmd_status(); wait_enter(); },
+            _ => break,
+        }
+
+        println!();
     }
 }
 
@@ -89,6 +103,52 @@ fn select_key(store: &KeysStore, prompt: &str) -> String {
         .interact()
         .unwrap();
     names[selection].to_string()
+}
+
+fn get_base_url() -> String {
+    let path = default_settings_path();
+    if path.exists() {
+        let json = read_json(&path);
+        if let Some(url) = json["env"]["ANTHROPIC_BASE_URL"].as_str() {
+            if !url.is_empty() {
+                return url.to_string();
+            }
+        }
+    }
+    "https://api.anthropic.com".to_string()
+}
+
+fn check_key_valid(api_key: &str) -> (bool, String) {
+    let base_url = get_base_url();
+    let url = format!("{base_url}/v1/messages");
+    let body = json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1,
+        "messages": [{ "role": "user", "content": "hi" }]
+    });
+    let body_str = serde_json::to_string(&body).unwrap();
+
+    let result = ureq::post(&url)
+        .header("Content-Type", "application/json")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send(body_str.as_bytes());
+
+    match result {
+        Ok(mut resp) => {
+            let text = resp.body_mut().read_to_string().unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            if json["content"].is_array() {
+                (true, "OK".to_string())
+            } else if json["error"].is_object() {
+                let msg = json["error"]["message"].as_str().unwrap_or("unknown error");
+                (false, msg.to_string())
+            } else {
+                (false, "unexpected response".to_string())
+            }
+        }
+        Err(e) => (false, format!("{e}")),
+    }
 }
 
 fn cmd_add(name: Option<String>, value: Option<String>) {
@@ -110,7 +170,7 @@ fn cmd_add(name: Option<String>, value: Option<String>) {
 
     if name.is_empty() || value.is_empty() {
         eprintln!("Name and value cannot be empty.");
-        std::process::exit(1);
+        return;
     }
 
     let mut store = KeysStore::load();
@@ -166,14 +226,14 @@ fn cmd_default(name: Option<String>) {
 
     if store.keys.is_empty() {
         eprintln!("No keys saved. Run 'ccc key add' first.");
-        std::process::exit(1);
+        return;
     }
 
     let name = name.unwrap_or_else(|| select_key(&store, "Select default key"));
 
     if !store.keys.contains_key(&name) {
         eprintln!("Key '{name}' not found.");
-        std::process::exit(1);
+        return;
     }
 
     store.active = Some(name.clone());
@@ -187,14 +247,14 @@ fn cmd_use(name: Option<String>) {
 
     if store.keys.is_empty() {
         eprintln!("No keys saved. Run 'ccc key add' first.");
-        std::process::exit(1);
+        return;
     }
 
     let name = name.unwrap_or_else(|| select_key(&store, "Select key for current folder"));
 
     if !store.keys.contains_key(&name) {
         eprintln!("Key '{name}' not found.");
-        std::process::exit(1);
+        return;
     }
 
     let key_value = store.keys.get(&name).unwrap();
@@ -219,19 +279,45 @@ fn cmd_use(name: Option<String>) {
     println!("Using '{name}' for folder: {folder}");
 }
 
+/// Check all keys by calling API
+fn cmd_status() {
+    let store = KeysStore::load();
+
+    if store.keys.is_empty() {
+        println!("No keys saved. Run 'ccc key add' to add one.");
+        return;
+    }
+
+    println!("Checking all keys...");
+    println!();
+    for (name, value) in &store.keys {
+        let is_default = store.active.as_deref() == Some(name);
+        let masked = mask_key(value);
+        let tag = if is_default { " (default)" } else { "" };
+
+        print!("  {name:<20} {masked}{tag} ... ");
+        let (ok, msg) = check_key_valid(value);
+        if ok {
+            println!("[OK]");
+        } else {
+            println!("[FAIL] {msg}");
+        }
+    }
+}
+
 fn cmd_remove(name: Option<String>) {
     let mut store = KeysStore::load();
 
     if store.keys.is_empty() {
         eprintln!("No keys saved.");
-        std::process::exit(1);
+        return;
     }
 
     let name = name.unwrap_or_else(|| select_key(&store, "Select key to remove"));
 
     if !store.keys.contains_key(&name) {
         eprintln!("Key '{name}' not found.");
-        std::process::exit(1);
+        return;
     }
 
     store.keys.remove(&name);
