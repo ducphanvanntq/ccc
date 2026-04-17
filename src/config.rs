@@ -82,14 +82,7 @@ impl KeysStore {
         write_json(&path, &Value::Object(map));
     }
 
-    pub fn apply_active(&self) {
-        let Some(active) = &self.active else { return };
-        let Some(key_value) = self.keys.get(active) else { return };
-
-        let settings_path = default_settings_path();
-        if !settings_path.exists() { return; }
-        let mut json = read_json(&settings_path);
-        json["env"]["ANTHROPIC_API_KEY"] = Value::String(key_value.clone());
-        write_json(&settings_path, &json);
+    pub fn get_active_key(&self) -> Option<&String> {
+        self.active.as_ref().and_then(|a| self.keys.get(a))
     }
 }

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::config::{default_claude_dir, SETTINGS_FILE};
+use crate::config::{default_claude_dir, read_json, write_json, KeysStore, SETTINGS_FILE};
 use crate::utils::{confirm, copy_dir_recursive};
 
 pub fn run() {
@@ -22,6 +22,20 @@ pub fn run() {
     }
 
     copy_dir_recursive(&source, target).expect("Failed to copy .claude folder");
+
+    // Apply default key from keys.json
+    let store = KeysStore::load();
+    if let Some(key_value) = store.get_active_key() {
+        if target_settings.exists() {
+            let mut json = read_json(&target_settings);
+            json["env"]["ANTHROPIC_API_KEY"] = serde_json::Value::String(key_value.clone());
+            write_json(&target_settings, &json);
+            println!("Applied default key '{}' to local config.", store.active.as_deref().unwrap_or(""));
+        }
+    } else {
+        println!("No API key found. Run 'ccc key add' to add one, then 'ccc key use' to apply.");
+    }
+
     println!("Copied default .claude config to current directory.");
     println!("Done!");
 }
