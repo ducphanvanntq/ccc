@@ -30,10 +30,10 @@ enum Commands {
         #[command(subcommand)]
         target: Option<ShowTarget>,
     },
-    /// Set ANTHROPIC_API_KEY in default config
+    /// Manage API keys
     Key {
-        /// API key value (if omitted, will prompt for input)
-        key: Option<String>,
+        #[command(subcommand)]
+        subcmd: Option<commands::key::KeyCmd>,
     },
     /// Check for updates and install latest version
     Update,
@@ -50,7 +50,7 @@ fn main() {
         Some(Commands::Version) => commands::version::run(),
         Some(Commands::Init) => commands::init::run(),
         Some(Commands::Show { target }) => commands::show::run(target.unwrap_or(ShowTarget::Global)),
-        Some(Commands::Key { key }) => commands::key::run(key),
+        Some(Commands::Key { subcmd }) => commands::key::run(subcmd),
         Some(Commands::Update) => commands::update::run(),
         Some(Commands::Doctor) => commands::doctor::run(),
         Some(Commands::Check) => commands::check::run(),
