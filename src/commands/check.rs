@@ -1,79 +1,63 @@
-use serde_json::json;
-
-use crate::config::{default_settings_path, read_json};
+use crate::config::{default_settings_path, KeysStore};
+use crate::utils::{check_api_key, get_api_config, mask_key, try_read_json};
 
 pub fn run() {
-    let path = default_settings_path();
-    if !path.exists() {
-        eprintln!("Global settings not found. Please run install first.");
-        std::process::exit(1);
-    }
+    // Try to get key from local config first, then keys.json default
+    let api_key = get_current_key();
 
-    let settings = read_json(&path);
-
-    let api_key = settings["env"]["ANTHROPIC_API_KEY"]
-        .as_str()
-        .unwrap_or("");
     if api_key.is_empty() {
-        eprintln!("API key not set. Run 'ccc key' first.");
-        std::process::exit(1);
+        eprintln!("API key not set. Run 'ccc key add' first.");
+        return;
     }
 
-    let base_url = settings["env"]["ANTHROPIC_BASE_URL"]
-        .as_str()
-        .unwrap_or("https://api.anthropic.com");
-
-    let model = settings["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"]
-        .as_str()
-        .unwrap_or("claude-sonnet-4-20250514");
-
-    let url = format!("{base_url}/v1/messages");
+    let (base_url, model) = get_api_config();
 
     println!("Checking API connection...");
-    println!("  URL:   {url}");
+    println!("  URL:   {base_url}/v1/messages");
     println!("  Model: {model}");
+    println!("  Key:   {}", mask_key(&api_key));
     println!();
 
-    let body = json!({
-        "model": model,
-        "max_tokens": 64,
-        "messages": [
-            {
-                "role": "user",
-                "content": "Say OK"
-            }
-        ]
-    });
-
-    let body_str = serde_json::to_string(&body).expect("Failed to serialize body");
-
-    let result = ureq::post(&url)
-        .header("Content-Type", "application/json")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .send(body_str.as_bytes());
-
-    match result {
-        Ok(mut resp) => {
-            let text: String = resp.body_mut().read_to_string().unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-
-            if json["content"].is_array() {
-                let reply = json["content"][0]["text"].as_str().unwrap_or("");
-                println!("  [OK] API key is valid!");
-                println!("  Response: {reply}");
-            } else if json["error"].is_object() {
-                let msg = json["error"]["message"].as_str().unwrap_or("unknown error");
-                println!("  [!!] API returned error: {msg}");
-            } else {
-                println!("  [!!] Unexpected response: {text}");
-            }
-        }
-        Err(e) => {
-            println!("  [!!] Cannot connect to API: {e}");
-            println!("  Key has been set but connection failed.");
-        }
+    let (ok, msg) = check_api_key(&api_key);
+    if ok {
+        println!("  [OK] API key is valid!");
+    } else {
+        println!("  [!!] API check failed: {msg}");
     }
 
     println!();
+}
+
+fn get_current_key() -> String {
+    // 1. Try local .claude/settings.local.json
+    let local = crate::config::local_settings_path();
+    if local.exists() {
+        if let Ok(json) = try_read_json(&local) {
+            if let Some(key) = json["env"]["ANTHROPIC_API_KEY"].as_str() {
+                if !key.is_empty() {
+                    return key.to_string();
+                }
+            }
+        }
+    }
+
+    // 2. Try default key from keys.json
+    let store = KeysStore::load();
+    if let Some(key) = store.get_active_key() {
+        return key.clone();
+    }
+
+    // 3. Try global settings
+    let global = default_settings_path();
+    if global.exists() {
+        if let Ok(json) = try_read_json(&global) {
+            if let Some(key) = json["env"]["ANTHROPIC_API_KEY"].as_str() {
+                if !key.is_empty() {
+                    return key.to_string();
+                }
+            }
+        }
+    }
+
+    String::new()
 }

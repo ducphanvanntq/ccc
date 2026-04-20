@@ -31,8 +31,14 @@ pub fn keys_path() -> PathBuf {
 }
 
 pub fn read_json(path: &Path) -> Value {
-    let content = fs::read_to_string(path).expect("Failed to read settings");
-    serde_json::from_str(&content).expect("Failed to parse settings")
+    let content = fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to read {}: {e}", path.display());
+        "{}".to_string()
+    });
+    serde_json::from_str(&content).unwrap_or_else(|e| {
+        eprintln!("Warning: Invalid JSON in {}: {e}", path.display());
+        Value::Object(serde_json::Map::new())
+    })
 }
 
 pub fn write_json(path: &Path, value: &Value) {

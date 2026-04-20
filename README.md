@@ -66,8 +66,11 @@ ccc key use [name]
 # Remove a key
 ccc key remove [name]
 
-# Check if active key is valid
-ccc key check
+# Rename a key
+ccc key rename
+
+# Check all keys status (test API connection)
+ccc key status
 ```
 
 **default** vs **use**:
@@ -144,8 +147,11 @@ ccc key use [tên]
 # Xóa key
 ccc key remove [tên]
 
-# Kiểm tra key có hoạt động không
-ccc key check
+# Đổi tên key
+ccc key rename
+
+# Kiểm tra tất cả key có hoạt động không
+ccc key status
 ```
 
 **default** vs **use**:

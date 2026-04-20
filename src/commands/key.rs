@@ -1,9 +1,8 @@
 use dialoguer::{Select, Input, Confirm};
 use dialoguer::theme::ColorfulTheme;
-use serde_json::json;
 
-use crate::config::{default_settings_path, local_settings_path, read_json, write_json, KeysStore};
-use crate::utils::mask_key;
+use crate::config::{local_settings_path, read_json, write_json, KeysStore};
+use crate::utils::{check_api_key, get_api_config, mask_key, validate_key_format};
 
 pub fn run(subcmd: Option<KeyCmd>) {
     match subcmd {
@@ -12,6 +11,7 @@ pub fn run(subcmd: Option<KeyCmd>) {
         Some(KeyCmd::Default { name }) => cmd_default(name),
         Some(KeyCmd::Use { name }) => cmd_use(name),
         Some(KeyCmd::Remove { name }) => cmd_remove(name),
+        Some(KeyCmd::Rename) => cmd_rename(),
         Some(KeyCmd::Status) => cmd_status(),
         None => cmd_menu(),
     }
@@ -43,6 +43,8 @@ pub enum KeyCmd {
         /// Key name (optional, shows list if omitted)
         name: Option<String>,
     },
+    /// Rename a saved key
+    Rename,
     /// Check all keys status (test API connection)
     Status,
 }
@@ -66,6 +68,7 @@ fn cmd_menu() {
             "Set default key",
             "Use key (current folder)",
             "Remove key",
+            "Rename key",
             "Key status",
             "Exit",
         ];
@@ -82,7 +85,8 @@ fn cmd_menu() {
             Ok(2) => { cmd_default(None); wait_enter(); },
             Ok(3) => { cmd_use(None); wait_enter(); },
             Ok(4) => { cmd_remove(None); wait_enter(); },
-            Ok(5) => { cmd_status(); wait_enter(); },
+            Ok(5) => { cmd_rename(); wait_enter(); },
+            Ok(6) => { cmd_status(); wait_enter(); },
             _ => break,
         }
 
@@ -105,52 +109,6 @@ fn select_key(store: &KeysStore, prompt: &str) -> String {
     names[selection].to_string()
 }
 
-fn get_base_url() -> String {
-    let path = default_settings_path();
-    if path.exists() {
-        let json = read_json(&path);
-        if let Some(url) = json["env"]["ANTHROPIC_BASE_URL"].as_str() {
-            if !url.is_empty() {
-                return url.to_string();
-            }
-        }
-    }
-    "https://api.anthropic.com".to_string()
-}
-
-fn check_key_valid(api_key: &str) -> (bool, String) {
-    let base_url = get_base_url();
-    let url = format!("{base_url}/v1/messages");
-    let body = json!({
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 1,
-        "messages": [{ "role": "user", "content": "hi" }]
-    });
-    let body_str = serde_json::to_string(&body).unwrap();
-
-    let result = ureq::post(&url)
-        .header("Content-Type", "application/json")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .send(body_str.as_bytes());
-
-    match result {
-        Ok(mut resp) => {
-            let text = resp.body_mut().read_to_string().unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-            if json["content"].is_array() {
-                (true, "OK".to_string())
-            } else if json["error"].is_object() {
-                let msg = json["error"]["message"].as_str().unwrap_or("unknown error");
-                (false, msg.to_string())
-            } else {
-                (false, "unexpected response".to_string())
-            }
-        }
-        Err(e) => (false, format!("{e}")),
-    }
-}
-
 fn cmd_add(name: Option<String>, value: Option<String>) {
     let theme = ColorfulTheme::default();
 
@@ -168,8 +126,13 @@ fn cmd_add(name: Option<String>, value: Option<String>) {
             .unwrap()
     });
 
-    if name.is_empty() || value.is_empty() {
-        eprintln!("Name and value cannot be empty.");
+    if name.is_empty() {
+        eprintln!("Name cannot be empty.");
+        return;
+    }
+
+    if let Err(e) = validate_key_format(&value) {
+        eprintln!("{e}");
         return;
     }
 
@@ -279,6 +242,48 @@ fn cmd_use(name: Option<String>) {
     println!("Using '{name}' for folder: {folder}");
 }
 
+/// Rename a key
+fn cmd_rename() {
+    let mut store = KeysStore::load();
+
+    if store.keys.is_empty() {
+        eprintln!("No keys saved.");
+        return;
+    }
+
+    let old_name = select_key(&store, "Select key to rename");
+
+    let theme = ColorfulTheme::default();
+    let new_name: String = Input::with_theme(&theme)
+        .with_prompt("New name")
+        .interact_text()
+        .unwrap();
+
+    if new_name.is_empty() {
+        eprintln!("Name cannot be empty.");
+        return;
+    }
+
+    if new_name == old_name {
+        println!("Name unchanged.");
+        return;
+    }
+
+    if store.keys.contains_key(&new_name) {
+        eprintln!("Key '{new_name}' already exists.");
+        return;
+    }
+
+    if let Some(value) = store.keys.remove(&old_name) {
+        store.keys.insert(new_name.clone(), value);
+        if store.active.as_deref() == Some(&old_name) {
+            store.active = Some(new_name.clone());
+        }
+        store.save();
+        println!("Renamed '{old_name}' -> '{new_name}'.");
+    }
+}
+
 /// Check all keys by calling API
 fn cmd_status() {
     let store = KeysStore::load();
@@ -288,6 +293,10 @@ fn cmd_status() {
         return;
     }
 
+    let (base_url, model) = get_api_config();
+    println!("API: {base_url}");
+    println!("Model: {model}");
+    println!();
     println!("Checking all keys...");
     println!();
     for (name, value) in &store.keys {
@@ -296,7 +305,7 @@ fn cmd_status() {
         let tag = if is_default { " (default)" } else { "" };
 
         print!("  {name:<20} {masked}{tag} ... ");
-        let (ok, msg) = check_key_valid(value);
+        let (ok, msg) = check_api_key(value);
         if ok {
             println!("[OK]");
         } else {
