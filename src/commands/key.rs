@@ -1,6 +1,7 @@
 use dialoguer::{Select, Input, Confirm};
 use dialoguer::theme::ColorfulTheme;
 
+
 use crate::config::{local_settings_path, read_json, write_json, KeysStore};
 use crate::utils::{check_api_key, get_api_config, mask_key, validate_key_format};
 
@@ -49,49 +50,9 @@ pub enum KeyCmd {
     Status,
 }
 
-fn wait_enter() {
-    use std::io::{self, Read};
-    println!();
-    print!("Press Enter to continue...");
-    io::Write::flush(&mut io::stdout()).ok();
-    let _ = io::stdin().read(&mut [0u8]);
-}
 
 fn cmd_menu() {
-    loop {
-        let store = KeysStore::load();
-        let key_count = store.keys.len();
-        let theme = ColorfulTheme::default();
-        let items = vec![
-            "Add new key",
-            "List keys",
-            "Set default key",
-            "Use key (current folder)",
-            "Remove key",
-            "Rename key",
-            "Key status",
-            "Exit",
-        ];
-
-        let selection = Select::with_theme(&theme)
-            .with_prompt(format!("Key manager ({key_count})"))
-            .items(&items)
-            .default(0)
-            .interact();
-
-        match selection {
-            Ok(0) => { cmd_add(None, None); wait_enter(); },
-            Ok(1) => { cmd_list(); wait_enter(); },
-            Ok(2) => { cmd_default(None); wait_enter(); },
-            Ok(3) => { cmd_use(None); wait_enter(); },
-            Ok(4) => { cmd_remove(None); wait_enter(); },
-            Ok(5) => { cmd_rename(); wait_enter(); },
-            Ok(6) => { cmd_status(); wait_enter(); },
-            _ => break,
-        }
-
-        println!();
-    }
+    crate::tui::run_key_tui();
 }
 
 fn select_key(store: &KeysStore, prompt: &str) -> String {
@@ -244,6 +205,11 @@ fn cmd_use(name: Option<String>) {
 
 /// Rename a key
 fn cmd_rename() {
+    cmd_rename_with(None);
+}
+
+/// Rename a key with optional pre-selected name
+fn cmd_rename_with(pre_selected: Option<String>) {
     let mut store = KeysStore::load();
 
     if store.keys.is_empty() {
@@ -251,8 +217,14 @@ fn cmd_rename() {
         return;
     }
 
-    let old_name = select_key(&store, "Select key to rename");
+    let old_name = pre_selected.unwrap_or_else(|| select_key(&store, "Select key to rename"));
 
+    if !store.keys.contains_key(&old_name) {
+        eprintln!("Key '{old_name}' not found.");
+        return;
+    }
+
+    println!("Renaming key: '{old_name}'");
     let theme = ColorfulTheme::default();
     let new_name: String = Input::with_theme(&theme)
         .with_prompt("New name")
