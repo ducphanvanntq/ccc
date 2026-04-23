@@ -1,6 +1,6 @@
 # ccc - Claude Code Config CLI
 
-Quick setup tool for Claude Code configuration.
+Quick setup tool for Claude Code configuration, with a built-in interactive TUI key manager.
 
 ## Install
 
@@ -47,10 +47,36 @@ ccc version
 
 ### Key Management
 
-```bash
-# Interactive key manager (arrow-key menu)
-ccc key
+#### Interactive TUI (recommended)
 
+```bash
+ccc key
+```
+
+Opens a full-screen terminal UI with:
+
+- **Key table** — navigate with `↑↓` or `j/k`, default key marked with `★`
+- **Modal dialogs** — inline input for add/rename, confirmation for remove
+- **Status dashboard** — full-screen view with progress bar, API info, and live results
+- **Toast notifications** — instant feedback for all operations
+
+**Keyboard shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| `a` | Add a new key (modal input) |
+| `d` | Set highlighted key as default |
+| `u` | Use highlighted key for current folder |
+| `r` | Remove highlighted key (with confirmation) |
+| `n` | Rename highlighted key (modal input) |
+| `s` | Check all keys status (full-screen dashboard) |
+| `q` / `Esc` | Quit |
+
+#### CLI commands
+
+All key operations are also available as direct CLI commands:
+
+```bash
 # Add a new key
 ccc key add <name> <value>
 
@@ -77,83 +103,3 @@ ccc key status
 - `ccc key default` — sets which key is the global default (stored in `~/.ccc/keys.json`). Used automatically when running `ccc init`.
 - `ccc key use` — applies a key to the current project folder (writes to `.claude/settings.local.json`).
 
----
-
-# ccc - Claude Code Config CLI (Tiếng Việt)
-
-Công cụ cài đặt nhanh cấu hình cho Claude Code.
-
-## Cài đặt
-
-### Windows (PowerShell)
-
-```powershell
-irm https://raw.githubusercontent.com/ducphanvanntq/ccc/main/install.ps1 | iex
-```
-
-### macOS / Linux
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ducphanvanntq/ccc/main/install.sh | bash
-```
-
-### Cài thủ công
-
-Tải binary từ [Releases](https://github.com/ducphanvanntq/ccc/releases), đặt vào một thư mục và thêm vào PATH.
-
-## Cách dùng
-
-```bash
-# Khởi tạo cấu hình .claude trong project hiện tại (tự dùng key mặc định)
-ccc init
-
-# Xem cấu hình local hiện tại
-ccc show config
-
-# Xem cấu hình global mặc định
-ccc show global
-
-# Kiểm tra kết nối API với key hiện tại
-ccc check
-
-# Kiểm tra môi trường và trạng thái cấu hình
-ccc doctor
-
-# Kiểm tra và cập nhật phiên bản mới
-ccc update
-
-# Xem phiên bản
-ccc version
-```
-
-### Quản lý Key
-
-```bash
-# Menu quản lý key (chọn bằng phím mũi tên)
-ccc key
-
-# Thêm key mới
-ccc key add <tên> <giá_trị>
-
-# Liệt kê tất cả key
-ccc key list
-
-# Đặt key mặc định (lưu trong keys.json, dùng khi ccc init)
-ccc key default [tên]
-
-# Dùng key cho folder hiện tại (.claude/settings.local.json)
-ccc key use [tên]
-
-# Xóa key
-ccc key remove [tên]
-
-# Đổi tên key
-ccc key rename
-
-# Kiểm tra tất cả key có hoạt động không
-ccc key status
-```
-
-**default** vs **use**:
-- `ccc key default` — đặt key mặc định toàn cục (lưu trong `~/.ccc/keys.json`). Tự động áp dụng khi chạy `ccc init`.
-- `ccc key use` — áp dụng key cho project hiện tại (ghi vào `.claude/settings.local.json`).
