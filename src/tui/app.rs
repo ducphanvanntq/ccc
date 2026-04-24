@@ -1,134 +1,215 @@
-use std::sync::mpsc;
-use std::thread;
+use crossterm::event::KeyCode;
+use ratatui::{prelude::*, widgets::*};
 
-use crate::api::{check_api_key, get_api_config, validate_key_format};
+use super::component::{Action, KeyOp, ModeSwitch};
+use super::components::confirm_modal::ConfirmModal;
+use super::components::footer::{Footer, FooterMode};
+use super::components::header::Header;
+use super::components::input_modal::InputModal;
+use super::components::key_table::KeyTable;
+use super::components::status_dashboard::StatusDashboard;
+use super::components::toast::Toast;
+use super::theme::{BG, ICON_CHECK};
+
+use crate::api::validate_key_format;
 use crate::config::{local_settings_path, read_json_or_default, write_json, KeysStore};
-use crate::utils::mask_key;
 
-use super::state::{App, Mode, StatusEntry, StatusState};
-use super::theme::ICON_CHECK;
+// ── App modes ──
+
+enum Mode {
+    Normal,
+    AddName(InputModal),
+    AddValue(InputModal),
+    Rename(InputModal),
+    ConfirmRemove(ConfirmModal),
+    Status(StatusDashboard),
+    Message(Toast),
+}
+
+// ── App orchestrator ──
+
+pub struct App {
+    mode: Mode,
+    pub key_table: KeyTable,
+    pub should_quit: bool,
+}
 
 impl App {
-    pub fn load() -> Self {
-        let store = KeysStore::load();
-        let entries = Self::build_entries(&store);
-        App { entries, selected: 0, mode: Mode::Normal, should_quit: false }
-    }
-
-    pub fn build_entries(store: &KeysStore) -> Vec<(String, String, bool)> {
-        store.keys.iter()
-            .map(|(name, value)| {
-                let is_default = store.active.as_deref() == Some(name.as_str());
-                (name.clone(), mask_key(value), is_default)
-            })
-            .collect()
-    }
-
-    pub fn reload(&mut self) {
-        let store = KeysStore::load();
-        self.entries = Self::build_entries(&store);
-        if self.entries.is_empty() {
-            self.selected = 0;
-        } else if self.selected >= self.entries.len() {
-            self.selected = self.entries.len() - 1;
+    pub fn new() -> Self {
+        App {
+            mode: Mode::Normal,
+            key_table: KeyTable::load(),
+            should_quit: false,
         }
     }
 
-    pub fn selected_name(&self) -> Option<String> {
-        self.entries.get(self.selected).map(|(n, _, _)| n.clone())
+    pub fn has_pending_status(&self) -> bool {
+        matches!(&self.mode, Mode::Status(s) if s.is_pending())
     }
 
-    pub fn msg(&mut self, text: String, success: bool) {
-        self.mode = Mode::Message { text, success };
+    pub fn poll_status(&mut self) {
+        if let Mode::Status(dashboard) = &mut self.mode {
+            dashboard.poll();
+        }
     }
 
-    // ── Operations ──
+    // ── Event routing ──
 
-    pub fn do_add(&mut self, name: &str, value: &str) {
+    pub fn handle_event(&mut self, key: KeyCode) {
+        let action = match &mut self.mode {
+            Mode::Normal => self.key_table.handle_event(key),
+            Mode::AddName(modal) => modal.handle_event(key),
+            Mode::AddValue(modal) => modal.handle_event(key),
+            Mode::Rename(modal) => modal.handle_event(key),
+            Mode::ConfirmRemove(modal) => modal.handle_event(key),
+            Mode::Status(dashboard) => dashboard.handle_event(key),
+            Mode::Message(_) => Action::Switch(ModeSwitch::Normal),
+        };
+        self.process_action(action);
+    }
+
+    fn process_action(&mut self, action: Action) {
+        match action {
+            Action::None => {}
+            Action::Quit => self.should_quit = true,
+            Action::Notify { text, success } => {
+                self.mode = Mode::Message(Toast { text, success });
+            }
+            Action::Op(op) => self.execute_op(op),
+            Action::Switch(switch) => self.switch_mode(switch),
+        }
+    }
+
+    fn switch_mode(&mut self, switch: ModeSwitch) {
+        self.mode = match switch {
+            ModeSwitch::Normal => Mode::Normal,
+            ModeSwitch::AddName => {
+                Mode::AddName(InputModal::new(
+                    "Add Key", "Key name (e.g. work, personal):", 1, 2,
+                    |name| {
+                        if name.is_empty() {
+                            Action::Notify { text: "Name cannot be empty.".into(), success: false }
+                        } else {
+                            Action::Switch(ModeSwitch::AddValue { name })
+                        }
+                    },
+                ))
+            }
+            ModeSwitch::AddValue { name } => {
+                let name_clone = name.clone();
+                Mode::AddValue(InputModal::new(
+                    format!("Add Key — '{name}'"), "API key value:", 2, 2,
+                    move |value| Action::Op(KeyOp::Add { name: name_clone.clone(), value }),
+                ))
+            }
+            ModeSwitch::Rename { old_name } => {
+                let old = old_name.clone();
+                Mode::Rename(InputModal::new(
+                    format!("Rename '{old_name}'"), "New name:", 1, 1,
+                    move |new_name| Action::Op(KeyOp::Rename { old_name: old.clone(), new_name }),
+                ))
+            }
+            ModeSwitch::ConfirmRemove(name) => {
+                Mode::ConfirmRemove(ConfirmModal { name })
+            }
+        };
+    }
+
+    // ── Key operations ──
+
+    fn execute_op(&mut self, op: KeyOp) {
+        match op {
+            KeyOp::Add { name, value } => self.do_add(&name, &value),
+            KeyOp::Default(name) => self.do_default(&name),
+            KeyOp::Use(name) => self.do_use(&name),
+            KeyOp::Remove(name) => self.do_remove(&name),
+            KeyOp::Rename { old_name, new_name } => self.do_rename(&old_name, &new_name),
+            KeyOp::Status => self.do_status(),
+        }
+    }
+
+    fn notify(&mut self, text: String, success: bool) {
+        self.mode = Mode::Message(Toast { text, success });
+    }
+
+    fn do_add(&mut self, name: &str, value: &str) {
         if name.is_empty() {
-            self.msg("Name cannot be empty.".into(), false);
+            self.notify("Name cannot be empty.".into(), false);
             return;
         }
         if let Err(e) = validate_key_format(value) {
-            self.msg(e, false);
+            self.notify(e, false);
             return;
         }
         let mut store = KeysStore::load();
         let is_first = store.active.is_none();
         store.keys.insert(name.to_string(), value.to_string());
-        if is_first {
-            store.active = Some(name.to_string());
-        }
+        if is_first { store.active = Some(name.to_string()); }
         if let Err(e) = store.save() {
-            self.msg(format!("Failed to save: {e}"), false);
+            self.notify(format!("Failed to save: {e}"), false);
             return;
         }
-        if is_first {
-            self.msg(format!("{} Added '{name}' and set as default.", ICON_CHECK), true);
+        let msg = if is_first {
+            format!("{} Added '{name}' and set as default.", ICON_CHECK)
         } else {
-            self.msg(format!("{} Added '{name}'.", ICON_CHECK), true);
-        }
-        self.reload();
+            format!("{} Added '{name}'.", ICON_CHECK)
+        };
+        self.notify(msg, true);
+        self.key_table.reload();
     }
 
-    pub fn do_default(&mut self, name: &str) {
+    fn do_default(&mut self, name: &str) {
         let mut store = KeysStore::load();
         if !store.keys.contains_key(name) {
-            self.msg(format!("Key '{name}' not found."), false);
+            self.notify(format!("Key '{name}' not found."), false);
             return;
         }
         store.active = Some(name.to_string());
         if let Err(e) = store.save() {
-            self.msg(format!("Failed to save: {e}"), false);
+            self.notify(format!("Failed to save: {e}"), false);
             return;
         }
-        self.msg(format!("{} Set '{name}' as default.", ICON_CHECK), true);
-        self.reload();
+        self.notify(format!("{} Set '{name}' as default.", ICON_CHECK), true);
+        self.key_table.reload();
     }
 
-    pub fn do_use(&mut self, name: &str) {
+    fn do_use(&mut self, name: &str) {
         let store = KeysStore::load();
         let key_value = match store.keys.get(name) {
             Some(v) => v.clone(),
-            None => { self.msg(format!("Key '{name}' not found."), false); return; }
+            None => { self.notify(format!("Key '{name}' not found."), false); return; }
         };
         let local_path = local_settings_path();
         if let Some(parent) = local_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        let mut json = if local_path.exists() {
-            read_json_or_default(&local_path)
-        } else {
-            serde_json::json!({})
-        };
+        let mut json = if local_path.exists() { read_json_or_default(&local_path) } else { serde_json::json!({}) };
         json["env"]["ANTHROPIC_API_KEY"] = serde_json::Value::String(key_value);
         if let Err(e) = write_json(&local_path, &json) {
-            self.msg(format!("Failed to write config: {e}"), false);
+            self.notify(format!("Failed to write config: {e}"), false);
             return;
         }
-        let folder = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| ".".into());
-        self.msg(format!("{} Using '{name}' for {folder}", ICON_CHECK), true);
+        let folder = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| ".".into());
+        self.notify(format!("{} Using '{name}' for {folder}", ICON_CHECK), true);
     }
 
-    pub fn do_remove(&mut self, name: &str) {
+    fn do_remove(&mut self, name: &str) {
         let mut store = KeysStore::load();
         store.keys.remove(name);
         if store.active.as_deref() == Some(name) {
             store.active = store.keys.keys().next().cloned();
         }
         if let Err(e) = store.save() {
-            self.msg(format!("Failed to save: {e}"), false);
+            self.notify(format!("Failed to save: {e}"), false);
             return;
         }
-        self.msg(format!("{} Removed '{name}'.", ICON_CHECK), true);
-        self.reload();
+        self.notify(format!("{} Removed '{name}'.", ICON_CHECK), true);
+        self.key_table.reload();
     }
 
-    pub fn do_rename(&mut self, old_name: &str, new_name: &str) {
+    fn do_rename(&mut self, old_name: &str, new_name: &str) {
         if new_name.is_empty() {
-            self.msg("Name cannot be empty.".into(), false);
+            self.notify("Name cannot be empty.".into(), false);
             return;
         }
         if new_name == old_name {
@@ -137,7 +218,7 @@ impl App {
         }
         let mut store = KeysStore::load();
         if store.keys.contains_key(new_name) {
-            self.msg(format!("Key '{new_name}' already exists."), false);
+            self.notify(format!("Key '{new_name}' already exists."), false);
             return;
         }
         if let Some(value) = store.keys.remove(old_name) {
@@ -146,69 +227,61 @@ impl App {
                 store.active = Some(new_name.to_string());
             }
             if let Err(e) = store.save() {
-                self.msg(format!("Failed to save: {e}"), false);
+                self.notify(format!("Failed to save: {e}"), false);
                 return;
             }
-            self.msg(format!("{} Renamed '{old_name}' → '{new_name}'.", ICON_CHECK), true);
-            self.reload();
+            self.notify(format!("{} Renamed '{old_name}' → '{new_name}'.", ICON_CHECK), true);
+            self.key_table.reload();
         }
     }
 
-    pub fn do_status(&mut self) {
-        let store = KeysStore::load();
-        if store.keys.is_empty() {
-            self.msg("No keys to check.".into(), false);
+    fn do_status(&mut self) {
+        match StatusDashboard::new() {
+            Some(dashboard) => self.mode = Mode::Status(dashboard),
+            None => self.notify("No keys to check.".into(), false),
+        }
+    }
+
+    // ── Rendering ──
+
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
+
+        // Status dashboard is full-screen
+        if let Mode::Status(dashboard) = &self.mode {
+            dashboard.render(frame, area);
             return;
         }
 
-        let (api_url, model) = get_api_config();
-        let total = store.keys.len();
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([Constraint::Length(3), Constraint::Min(5), Constraint::Length(3)])
+            .split(area);
 
-        let results: Vec<StatusEntry> = store.keys.iter()
-            .map(|(name, value)| StatusEntry {
-                name: name.clone(),
-                masked: mask_key(value),
-                is_default: store.active.as_deref() == Some(name.as_str()),
-                result: None,
-            })
-            .collect();
+        // Header
+        Header { total: self.key_table.entries.len() }.render(frame, layout[0]);
 
-        // Spawn threads for parallel key checking
-        let (tx, rx) = mpsc::channel();
-        for (i, (_, value)) in store.keys.iter().enumerate() {
-            let tx = tx.clone();
-            let value = value.clone();
-            thread::spawn(move || {
-                let (ok, msg) = check_api_key(&value);
-                let _ = tx.send((i, ok, if ok { "OK".into() } else { msg }));
-            });
-        }
-        drop(tx);
+        // Key table
+        self.key_table.render(frame, layout[1]);
 
-        self.mode = Mode::Status(StatusState {
-            api_url,
-            model,
-            results,
-            total,
-            checked: 0,
-            rx: Some(rx),
-        });
-    }
+        // Footer
+        let footer_mode = match &self.mode {
+            Mode::Normal => FooterMode::Normal,
+            Mode::AddName(_) | Mode::AddValue(_) | Mode::Rename(_) => FooterMode::Input,
+            Mode::ConfirmRemove(_) => FooterMode::Confirm,
+            Mode::Status(_) | Mode::Message(_) => FooterMode::Dismiss,
+        };
+        Footer { mode: footer_mode }.render(frame, layout[2]);
 
-    /// Poll for completed status checks (non-blocking)
-    pub fn poll_status(&mut self) {
-        if let Mode::Status(state) = &mut self.mode {
-            if let Some(rx) = &state.rx {
-                while let Ok((idx, ok, msg)) = rx.try_recv() {
-                    if idx < state.results.len() {
-                        state.results[idx].result = Some((ok, msg));
-                        state.checked += 1;
-                    }
-                }
-                if state.checked >= state.total {
-                    state.rx = None;
-                }
+        // Modal overlays
+        match &self.mode {
+            Mode::AddName(modal) | Mode::AddValue(modal) | Mode::Rename(modal) => {
+                modal.render(frame, area);
             }
+            Mode::ConfirmRemove(modal) => modal.render(frame, area),
+            Mode::Message(toast) => toast.render(frame, area),
+            _ => {}
         }
     }
 }
