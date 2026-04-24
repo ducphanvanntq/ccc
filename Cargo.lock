@@ -171,10 +171,11 @@ dependencies = [
 
 [[package]]
 name = "ccc"
-version = "0.1.15"
+version = "0.1.17"
 dependencies = [
  "clap",
  "colored_json",
+ "console",
  "crossterm",
  "dialoguer",
  "ratatui",

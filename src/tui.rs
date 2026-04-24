@@ -6,8 +6,22 @@ use crossterm::{
 use ratatui::{prelude::*, widgets::*};
 use std::io::stdout;
 
+use console::Emoji;
+
 use crate::config::{local_settings_path, read_json, write_json, KeysStore};
 use crate::utils::{check_api_key, get_api_config, mask_key, validate_key_format};
+
+// ── Cross-platform icons (emoji with ASCII fallback) ──
+
+static ICON_KEY:   Emoji = Emoji("🔑 ", "(K) ");
+static ICON_SEARCH:Emoji = Emoji("🔍 ", "(?) ");
+static ICON_OK:    Emoji = Emoji("✅", "[OK]");
+static ICON_FAIL:  Emoji = Emoji("❌", "[X]");
+static ICON_WAIT:  Emoji = Emoji("⏳", "[..]");
+static ICON_STAR:  Emoji = Emoji("★", "*");
+static ICON_PLAY:  Emoji = Emoji("▶", ">");
+static ICON_CHECK: Emoji = Emoji("✓", "+");
+static ICON_CROSS: Emoji = Emoji("✗", "x");
 
 // ── Theme colors ──
 
@@ -150,10 +164,10 @@ impl App {
         if is_first {
             store.active = Some(name.to_string());
             store.save();
-            self.msg(format!("✓ Added '{name}' and set as default."), true);
+            self.msg(format!("{} Added '{name}' and set as default.", ICON_CHECK), true);
         } else {
             store.save();
-            self.msg(format!("✓ Added '{name}'."), true);
+            self.msg(format!("{} Added '{name}'.", ICON_CHECK), true);
         }
         self.reload();
     }
@@ -166,7 +180,7 @@ impl App {
         }
         store.active = Some(name.to_string());
         store.save();
-        self.msg(format!("✓ Set '{name}' as default."), true);
+        self.msg(format!("{} Set '{name}' as default.", ICON_CHECK), true);
         self.reload();
     }
 
@@ -186,7 +200,7 @@ impl App {
         let folder = std::env::current_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| ".".into());
-        self.msg(format!("✓ Using '{name}' for {folder}"), true);
+        self.msg(format!("{} Using '{name}' for {folder}", ICON_CHECK), true);
     }
 
     fn do_remove(&mut self, name: &str) {
@@ -196,7 +210,7 @@ impl App {
             store.active = store.keys.keys().next().cloned();
         }
         store.save();
-        self.msg(format!("✓ Removed '{name}'."), true);
+        self.msg(format!("{} Removed '{name}'.", ICON_CHECK), true);
         self.reload();
     }
 
@@ -220,7 +234,7 @@ impl App {
                 store.active = Some(new_name.to_string());
             }
             store.save();
-            self.msg(format!("✓ Renamed '{old_name}' → '{new_name}'."), true);
+            self.msg(format!("{} Renamed '{old_name}' → '{new_name}'.", ICON_CHECK), true);
             self.reload();
         }
     }
@@ -446,7 +460,7 @@ fn panel_block(title: &str) -> Block<'_> {
 
 fn render_header(frame: &mut Frame, area: Rect, total: usize) {
     let title = Line::from(vec![
-        Span::styled("  🔑  ", Style::default().fg(Color::Yellow)),
+        Span::styled(format!("  {} ", ICON_KEY), Style::default().fg(Color::Yellow)),
         Span::styled("Key Manager", Style::default().fg(ACCENT).bold()),
         Span::styled(format!("  ({total} keys)"), Style::default().fg(DIM)),
     ]);
@@ -490,10 +504,10 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(TEXT)
         };
         Row::new(vec![
-            Cell::from(if sel { " ▶" } else { "  " }).style(Style::default().fg(ACCENT)),
+            Cell::from(if sel { format!(" {ICON_PLAY}") } else { "  ".into() }).style(Style::default().fg(ACCENT)),
             Cell::from(format!("  {name}")),
             Cell::from(masked.as_str()).style(Style::default().fg(if sel { TEXT } else { TEXT_DIM })),
-            Cell::from(if *is_default { " ★" } else { "" }).style(Style::default().fg(Color::Yellow)),
+            Cell::from(if *is_default { format!(" {ICON_STAR}") } else { "".into() }).style(Style::default().fg(Color::Yellow)),
         ]).style(base)
     }).collect();
 
@@ -652,7 +666,7 @@ fn render_status_screen(frame: &mut Frame, area: Rect, state: &StatusState) {
     let done = state.checked == state.total;
     let header_text = if done { "Key Status — Complete" } else { "Key Status — Checking..." };
     let header = Paragraph::new(Line::from(vec![
-        Span::styled("  🔍  ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("  {} ", ICON_SEARCH), Style::default().fg(Color::Cyan)),
         Span::styled(header_text, Style::default().fg(ACCENT).bold()),
     ]))
     .alignment(Alignment::Center)
@@ -711,9 +725,9 @@ fn render_status_screen(frame: &mut Frame, area: Rect, state: &StatusState) {
 
     let rows: Vec<Row> = state.results.iter().map(|entry| {
         let (icon, status_text, status_style) = match &entry.result {
-            None => ("⏳", "checking...".to_string(), Style::default().fg(Color::Yellow)),
-            Some((true, msg)) => ("✅", msg.clone(), Style::default().fg(SUCCESS)),
-            Some((false, msg)) => ("❌", msg.clone(), Style::default().fg(ERROR)),
+            None => (ICON_WAIT.to_string(), "checking...".to_string(), Style::default().fg(Color::Yellow)),
+            Some((true, msg)) => (ICON_OK.to_string(), msg.clone(), Style::default().fg(SUCCESS)),
+            Some((false, msg)) => (ICON_FAIL.to_string(), msg.clone(), Style::default().fg(ERROR)),
         };
         let row_style = match &entry.result {
             None => Style::default().fg(Color::Yellow),
@@ -724,7 +738,7 @@ fn render_status_screen(frame: &mut Frame, area: Rect, state: &StatusState) {
             Cell::from(format!(" {icon}")),
             Cell::from(format!("  {}", entry.name)),
             Cell::from(entry.masked.as_str()).style(Style::default().fg(TEXT_DIM)),
-            Cell::from(if entry.is_default { " ★" } else { "" }).style(Style::default().fg(Color::Yellow)),
+            Cell::from(if entry.is_default { format!(" {ICON_STAR}") } else { "".into() }).style(Style::default().fg(Color::Yellow)),
             Cell::from(status_text).style(status_style),
         ]).style(row_style)
     }).collect();
@@ -746,10 +760,10 @@ fn render_status_screen(frame: &mut Frame, area: Rect, state: &StatusState) {
 
     let summary = if done {
         Line::from(vec![
-            Span::styled(" ✅ ", Style::default().fg(SUCCESS)),
+            Span::styled(format!(" {} ", ICON_OK), Style::default().fg(SUCCESS)),
             Span::styled(format!("{pass} passed"), Style::default().fg(SUCCESS).bold()),
             Span::styled("   ", Style::default()),
-            Span::styled("❌ ", Style::default().fg(if fail > 0 { ERROR } else { DIM })),
+            Span::styled(format!("{} ", ICON_FAIL), Style::default().fg(if fail > 0 { ERROR } else { DIM })),
             Span::styled(format!("{fail} failed"), Style::default().fg(if fail > 0 { ERROR } else { DIM }).bold()),
             Span::styled("   │   ", Style::default().fg(BORDER)),
             Span::styled("Press any key to return", Style::default().fg(TEXT_DIM)),
@@ -775,7 +789,7 @@ fn render_message_toast(frame: &mut Frame, area: Rect, text: &str, success: bool
     frame.render_widget(Clear, r);
 
     let color = if success { SUCCESS } else { ERROR };
-    let icon = if success { "✓" } else { "✗" };
+    let icon = if success { ICON_CHECK.to_string() } else { ICON_CROSS.to_string() };
     let block = modal_block(if success { "Success" } else { "Error" }, color);
     let inner = block.inner(r);
     frame.render_widget(block, r);
