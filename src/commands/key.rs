@@ -274,24 +274,33 @@ fn cmd_status() {
     }
 
     let (base_url, model) = get_api_config();
-    println!("API: {base_url}");
-    println!("Model: {model}");
+
     println!();
-    println!("Checking all keys...");
-    println!();
+    crate::ui::print_header(&crate::ui::ICON_SEARCH, "Key Status Check");
+    crate::ui::print_row("API", &base_url);
+    crate::ui::print_row("Model", &model);
+    crate::ui::print_separator();
+
+    let mut pass = 0;
+    let mut fail = 0;
+
     for (name, value) in &store.keys {
         let is_default = store.active.as_deref() == Some(name);
-        let masked = mask_key(value);
-        let tag = if is_default { " (default)" } else { "" };
+        let label = if is_default { format!("{name} *") } else { name.clone() };
 
-        print!("  {name:<20} {masked}{tag} ... ");
+        let sp = crate::ui::spinner(&format!("Checking {name}..."));
         let (ok, msg) = check_api_key(value);
-        if ok {
-            println!("[OK]");
-        } else {
-            println!("[FAIL] {msg}");
-        }
+        sp.finish_and_clear();
+
+        let detail = format!("{} {}", mask_key(value), if ok { "OK".into() } else { msg });
+        crate::ui::print_check(ok, &label, &detail);
+        if ok { pass += 1; } else { fail += 1; }
     }
+
+    crate::ui::print_separator();
+    crate::ui::print_result_line(pass, fail);
+    crate::ui::print_footer();
+    println!();
 }
 
 fn cmd_remove(name: Option<String>) -> Result<()> {

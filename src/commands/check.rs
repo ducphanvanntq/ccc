@@ -29,7 +29,9 @@ pub fn run() -> Result<()> {
     let mut pass = 0;
     let mut fail = 0;
 
-    // 1. Connection check
+    // 1. Connection check with spinner
+    let sp = ui::spinner("Checking connection...");
+
     let body = serde_json::json!({
         "model": model,
         "max_tokens": 1,
@@ -43,7 +45,8 @@ pub fn run() -> Result<()> {
         .header("anthropic-version", "2023-06-01")
         .send(body_str.as_bytes());
 
-    // Clear and show results
+    // Clear spinner and show results
+    sp.finish_and_clear();
 
     match result {
         Ok(mut resp) => {

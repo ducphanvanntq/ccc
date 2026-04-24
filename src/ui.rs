@@ -1,4 +1,5 @@
 use console::{style, Emoji};
+use indicatif::{ProgressBar, ProgressStyle};
 
 // ── Cross-platform icons ──
 
@@ -58,4 +59,18 @@ pub fn print_result_line(pass: usize, fail: usize) {
         )
     };
     println!("  │  {:<w$}│", result_text, w = 50 - 2);
+}
+
+// ── Spinner ──
+
+pub fn spinner(msg: &str) -> ProgressBar {
+    let sp = ProgressBar::new_spinner();
+    sp.set_style(
+        ProgressStyle::with_template("  │  {spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✓"]),
+    );
+    sp.set_message(msg.to_string());
+    sp.enable_steady_tick(std::time::Duration::from_millis(80));
+    sp
 }
