@@ -5,10 +5,12 @@ use crossterm::{
 };
 use ratatui::{prelude::*, widgets::*};
 use std::io::stdout;
+use std::sync::mpsc;
+use std::thread;
 
 use console::Emoji;
 
-use crate::config::{local_settings_path, read_json, write_json, KeysStore};
+use crate::config::{local_settings_path, read_json_or_default, write_json, KeysStore};
 use crate::utils::{check_api_key, get_api_config, mask_key, validate_key_format};
 
 // ── Cross-platform icons (emoji with ASCII fallback) ──
@@ -94,6 +96,7 @@ struct StatusState {
     results: Vec<StatusEntry>,
     total: usize,
     checked: usize,
+    rx: Option<mpsc::Receiver<(usize, bool, String)>>,
 }
 
 #[derive(Clone)]
@@ -101,7 +104,7 @@ struct StatusEntry {
     name: String,
     masked: String,
     is_default: bool,
-    result: Option<(bool, String)>, // None = checking, Some = done
+    result: Option<(bool, String)>,
 }
 
 // ── App ──
@@ -163,10 +166,14 @@ impl App {
         store.keys.insert(name.to_string(), value.to_string());
         if is_first {
             store.active = Some(name.to_string());
-            store.save();
+        }
+        if let Err(e) = store.save() {
+            self.msg(format!("Failed to save: {e}"), false);
+            return;
+        }
+        if is_first {
             self.msg(format!("{} Added '{name}' and set as default.", ICON_CHECK), true);
         } else {
-            store.save();
             self.msg(format!("{} Added '{name}'.", ICON_CHECK), true);
         }
         self.reload();
@@ -179,7 +186,10 @@ impl App {
             return;
         }
         store.active = Some(name.to_string());
-        store.save();
+        if let Err(e) = store.save() {
+            self.msg(format!("Failed to save: {e}"), false);
+            return;
+        }
         self.msg(format!("{} Set '{name}' as default.", ICON_CHECK), true);
         self.reload();
     }
@@ -194,9 +204,16 @@ impl App {
         if let Some(parent) = local_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        let mut json = if local_path.exists() { read_json(&local_path) } else { serde_json::json!({}) };
+        let mut json = if local_path.exists() {
+            read_json_or_default(&local_path)
+        } else {
+            serde_json::json!({})
+        };
         json["env"]["ANTHROPIC_API_KEY"] = serde_json::Value::String(key_value);
-        write_json(&local_path, &json);
+        if let Err(e) = write_json(&local_path, &json) {
+            self.msg(format!("Failed to write config: {e}"), false);
+            return;
+        }
         let folder = std::env::current_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| ".".into());
@@ -209,7 +226,10 @@ impl App {
         if store.active.as_deref() == Some(name) {
             store.active = store.keys.keys().next().cloned();
         }
-        store.save();
+        if let Err(e) = store.save() {
+            self.msg(format!("Failed to save: {e}"), false);
+            return;
+        }
         self.msg(format!("{} Removed '{name}'.", ICON_CHECK), true);
         self.reload();
     }
@@ -233,13 +253,16 @@ impl App {
             if store.active.as_deref() == Some(old_name) {
                 store.active = Some(new_name.to_string());
             }
-            store.save();
+            if let Err(e) = store.save() {
+                self.msg(format!("Failed to save: {e}"), false);
+                return;
+            }
             self.msg(format!("{} Renamed '{old_name}' → '{new_name}'.", ICON_CHECK), true);
             self.reload();
         }
     }
 
-    fn do_status(&mut self, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) {
+    fn do_status(&mut self) {
         let store = KeysStore::load();
         if store.keys.is_empty() {
             self.msg("No keys to check.".into(), false);
@@ -249,46 +272,54 @@ impl App {
         let (api_url, model) = get_api_config();
         let total = store.keys.len();
 
-        // Build initial entries (all pending)
-        let entries: Vec<(String, String, bool)> = store.keys.iter()
-            .map(|(name, value)| {
-                let is_default = store.active.as_deref() == Some(name.as_str());
-                (name.clone(), value.clone(), is_default)
-            })
-            .collect();
-
-        let mut results: Vec<StatusEntry> = entries.iter()
-            .map(|(name, value, is_default)| StatusEntry {
+        let results: Vec<StatusEntry> = store.keys.iter()
+            .map(|(name, value)| StatusEntry {
                 name: name.clone(),
                 masked: mask_key(value),
-                is_default: *is_default,
+                is_default: store.active.as_deref() == Some(name.as_str()),
                 result: None,
             })
             .collect();
 
-        // Check each key with live progress
-        for (i, (_, value, _)) in entries.iter().enumerate() {
-            self.mode = Mode::Status(StatusState {
-                api_url: api_url.clone(),
-                model: model.clone(),
-                results: results.clone(),
-                total,
-                checked: i,
+        // Spawn threads for parallel key checking
+        let (tx, rx) = mpsc::channel();
+        for (i, (_, value)) in store.keys.iter().enumerate() {
+            let tx = tx.clone();
+            let value = value.clone();
+            thread::spawn(move || {
+                let (ok, msg) = check_api_key(&value);
+                let _ = tx.send((i, ok, if ok { "OK".into() } else { msg }));
             });
-            terminal.draw(|f| render(f, self)).ok();
-
-            let (ok, msg) = check_api_key(value);
-            results[i].result = Some((ok, if ok { "OK".into() } else { msg }));
         }
+        drop(tx); // Drop sender so rx knows when all threads are done
 
-        // Final state with all checked
         self.mode = Mode::Status(StatusState {
             api_url,
             model,
             results,
             total,
-            checked: total,
+            checked: 0,
+            rx: Some(rx),
         });
+    }
+
+    /// Poll for completed status checks (non-blocking)
+    fn poll_status(&mut self) {
+        if let Mode::Status(state) = &mut self.mode {
+            if let Some(rx) = &state.rx {
+                // Drain all available results
+                while let Ok((idx, ok, msg)) = rx.try_recv() {
+                    if idx < state.results.len() {
+                        state.results[idx].result = Some((ok, msg));
+                        state.checked += 1;
+                    }
+                }
+                // If all done, drop the receiver
+                if state.checked >= state.total {
+                    state.rx = None;
+                }
+            }
+        }
     }
 }
 
@@ -311,8 +342,23 @@ pub fn run_key_tui() {
     let mut app = App::load();
 
     loop {
+        // Poll for async status results before drawing
+        app.poll_status();
+
         terminal.draw(|f| render(f, &app)).ok();
         if app.should_quit { break; }
+
+        // Use poll with timeout so status updates render without waiting for keypress
+        let has_pending_status = matches!(&app.mode, Mode::Status(s) if s.rx.is_some());
+        let timeout = if has_pending_status {
+            std::time::Duration::from_millis(50)
+        } else {
+            std::time::Duration::from_secs(60)
+        };
+
+        if !event::poll(timeout).unwrap_or(false) {
+            continue;
+        }
 
         let event = match event::read() {
             Ok(e) => e,
@@ -342,7 +388,7 @@ pub fn run_key_tui() {
                             app.mode = Mode::Rename { old_name: name, input: InputField::new() };
                         }
                     }
-                    KeyCode::Char('s') => app.do_status(&mut terminal),
+                    KeyCode::Char('s') => app.do_status(),
                     KeyCode::Up | KeyCode::Char('k') => {
                         if app.selected > 0 { app.selected -= 1; }
                     }
@@ -392,7 +438,13 @@ pub fn run_key_tui() {
                     _ => app.mode = Mode::Normal,
                 },
 
-                Mode::Status { .. } | Mode::Message { .. } => {
+                Mode::Status(state) => {
+                    // Only allow dismiss when all checks are done
+                    if state.rx.is_none() {
+                        app.mode = Mode::Normal;
+                    }
+                }
+                Mode::Message { .. } => {
                     app.mode = Mode::Normal;
                 }
             }
@@ -770,7 +822,7 @@ fn render_status_screen(frame: &mut Frame, area: Rect, state: &StatusState) {
         ])
     } else {
         Line::from(vec![
-            Span::styled(format!(" Checking {}/{}... ", state.checked + 1, state.total), Style::default().fg(Color::Cyan)),
+            Span::styled(format!(" Checking... "), Style::default().fg(Color::Cyan)),
             Span::styled(format!("({pending} remaining)"), Style::default().fg(DIM)),
         ])
     };

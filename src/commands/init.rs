@@ -1,14 +1,13 @@
+use anyhow::{bail, Context, Result};
 use std::path::Path;
 
 use crate::config::{default_claude_dir, read_json, write_json, KeysStore, SETTINGS_FILE};
 use crate::utils::{confirm, copy_dir_recursive};
 
-pub fn run() {
-    let source = default_claude_dir();
+pub fn run() -> Result<()> {
+    let source = default_claude_dir()?;
     if !source.exists() {
-        eprintln!("Default .claude folder not found at: {}", source.display());
-        eprintln!("Please run the install script first.");
-        std::process::exit(1);
+        bail!("Default .claude folder not found at: {}. Please run the install script first.", source.display());
     }
 
     let target = Path::new(".claude");
@@ -18,18 +17,18 @@ pub fn run() {
         && !confirm("settings.local.json already exists. Overwrite? (y/N): ")
     {
         println!("Cancelled.");
-        return;
+        return Ok(());
     }
 
-    copy_dir_recursive(&source, target).expect("Failed to copy .claude folder");
+    copy_dir_recursive(&source, target).context("Failed to copy .claude folder")?;
 
     // Apply default key from keys.json
     let store = KeysStore::load();
     if let Some(key_value) = store.get_active_key() {
         if target_settings.exists() {
-            let mut json = read_json(&target_settings);
+            let mut json = read_json(&target_settings)?;
             json["env"]["ANTHROPIC_API_KEY"] = serde_json::Value::String(key_value.clone());
-            write_json(&target_settings, &json);
+            write_json(&target_settings, &json)?;
             println!("Applied default key '{}' to local config.", store.active.as_deref().unwrap_or(""));
         }
     } else {
@@ -38,4 +37,5 @@ pub fn run() {
 
     println!("Copied default .claude config to current directory.");
     println!("Done!");
+    Ok(())
 }

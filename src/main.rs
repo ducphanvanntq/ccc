@@ -3,6 +3,7 @@ mod config;
 mod tui;
 mod utils;
 
+use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
@@ -44,17 +45,19 @@ enum Commands {
     Check,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Some(Commands::Version) => commands::version::run(),
-        Some(Commands::Init) => commands::init::run(),
-        Some(Commands::Show { target }) => commands::show::run(target.unwrap_or(ShowTarget::Global)),
-        Some(Commands::Key { subcmd }) => commands::key::run(subcmd),
-        Some(Commands::Update) => commands::update::run(),
-        Some(Commands::Doctor) => commands::doctor::run(),
-        Some(Commands::Check) => commands::check::run(),
-        None => Cli::command().print_help().unwrap(),
+        Some(Commands::Init) => commands::init::run()?,
+        Some(Commands::Show { target }) => commands::show::run(target.unwrap_or(ShowTarget::Global))?,
+        Some(Commands::Key { subcmd }) => commands::key::run(subcmd)?,
+        Some(Commands::Update) => commands::update::run()?,
+        Some(Commands::Doctor) => commands::doctor::run()?,
+        Some(Commands::Check) => commands::check::run()?,
+        None => Cli::command().print_help()?,
     }
+
+    Ok(())
 }

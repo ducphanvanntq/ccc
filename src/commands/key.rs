@@ -1,20 +1,20 @@
+use anyhow::{Context, Result};
 use dialoguer::{Select, Input, Confirm};
 use dialoguer::theme::ColorfulTheme;
 
-
-use crate::config::{local_settings_path, read_json, write_json, KeysStore};
+use crate::config::{local_settings_path, read_json_or_default, write_json, KeysStore};
 use crate::utils::{check_api_key, get_api_config, mask_key, validate_key_format};
 
-pub fn run(subcmd: Option<KeyCmd>) {
+pub fn run(subcmd: Option<KeyCmd>) -> Result<()> {
     match subcmd {
         Some(KeyCmd::Add { name, value }) => cmd_add(Some(name), Some(value)),
-        Some(KeyCmd::List) => cmd_list(),
+        Some(KeyCmd::List) => { cmd_list(); Ok(()) }
         Some(KeyCmd::Default { name }) => cmd_default(name),
         Some(KeyCmd::Use { name }) => cmd_use(name),
         Some(KeyCmd::Remove { name }) => cmd_remove(name),
         Some(KeyCmd::Rename) => cmd_rename(),
-        Some(KeyCmd::Status) => cmd_status(),
-        None => cmd_menu(),
+        Some(KeyCmd::Status) => { cmd_status(); Ok(()) }
+        None => { cmd_menu(); Ok(()) }
     }
 }
 
@@ -55,7 +55,7 @@ fn cmd_menu() {
     crate::tui::run_key_tui();
 }
 
-fn select_key(store: &KeysStore, prompt: &str) -> String {
+fn select_key(store: &KeysStore, prompt: &str) -> Result<String> {
     let theme = ColorfulTheme::default();
     let names: Vec<&str> = store.keys.keys().map(|s| s.as_str()).collect();
     let default_idx = store.active.as_ref()
@@ -66,35 +66,37 @@ fn select_key(store: &KeysStore, prompt: &str) -> String {
         .items(&names)
         .default(default_idx)
         .interact()
-        .unwrap();
-    names[selection].to_string()
+        .context("Selection cancelled")?;
+    Ok(names[selection].to_string())
 }
 
-fn cmd_add(name: Option<String>, value: Option<String>) {
+fn cmd_add(name: Option<String>, value: Option<String>) -> Result<()> {
     let theme = ColorfulTheme::default();
 
-    let name = name.unwrap_or_else(|| {
-        Input::with_theme(&theme)
+    let name = match name {
+        Some(n) => n,
+        None => Input::with_theme(&theme)
             .with_prompt("Key name (e.g. work, personal)")
             .interact_text()
-            .unwrap()
-    });
+            .context("Input cancelled")?,
+    };
 
-    let value = value.unwrap_or_else(|| {
-        Input::with_theme(&theme)
+    let value = match value {
+        Some(v) => v,
+        None => Input::with_theme(&theme)
             .with_prompt("API key value")
             .interact_text()
-            .unwrap()
-    });
+            .context("Input cancelled")?,
+    };
 
     if name.is_empty() {
         eprintln!("Name cannot be empty.");
-        return;
+        return Ok(());
     }
 
     if let Err(e) = validate_key_format(&value) {
         eprintln!("{e}");
-        return;
+        return Ok(());
     }
 
     let mut store = KeysStore::load();
@@ -103,7 +105,7 @@ fn cmd_add(name: Option<String>, value: Option<String>) {
     // Set as default if first key
     if store.active.is_none() {
         store.active = Some(name.clone());
-        store.save();
+        store.save()?;
         println!("Added '{name}' and set as default.");
     } else if store.active.as_deref() != Some(&name) {
         let set_default = Confirm::with_theme(&theme)
@@ -114,16 +116,17 @@ fn cmd_add(name: Option<String>, value: Option<String>) {
         if set_default {
             store.active = Some(name.clone());
         }
-        store.save();
+        store.save()?;
         if store.active.as_deref() == Some(&name) {
             println!("Added '{name}' and set as default.");
         } else {
             println!("Added '{name}'.");
         }
     } else {
-        store.save();
+        store.save()?;
         println!("Updated '{name}'.");
     }
+    Ok(())
 }
 
 fn cmd_list() {
@@ -145,40 +148,47 @@ fn cmd_list() {
 }
 
 /// Set default key in keys.json only
-fn cmd_default(name: Option<String>) {
+fn cmd_default(name: Option<String>) -> Result<()> {
     let mut store = KeysStore::load();
 
     if store.keys.is_empty() {
         eprintln!("No keys saved. Run 'ccc key add' first.");
-        return;
+        return Ok(());
     }
 
-    let name = name.unwrap_or_else(|| select_key(&store, "Select default key"));
+    let name = match name {
+        Some(n) => n,
+        None => select_key(&store, "Select default key")?,
+    };
 
     if !store.keys.contains_key(&name) {
         eprintln!("Key '{name}' not found.");
-        return;
+        return Ok(());
     }
 
     store.active = Some(name.clone());
-    store.save();
+    store.save()?;
     println!("Set '{name}' as default.");
+    Ok(())
 }
 
 /// Use key for current folder -> .claude/settings.local.json
-fn cmd_use(name: Option<String>) {
+fn cmd_use(name: Option<String>) -> Result<()> {
     let store = KeysStore::load();
 
     if store.keys.is_empty() {
         eprintln!("No keys saved. Run 'ccc key add' first.");
-        return;
+        return Ok(());
     }
 
-    let name = name.unwrap_or_else(|| select_key(&store, "Select key for current folder"));
+    let name = match name {
+        Some(n) => n,
+        None => select_key(&store, "Select key for current folder")?,
+    };
 
     if !store.keys.contains_key(&name) {
         eprintln!("Key '{name}' not found.");
-        return;
+        return Ok(());
     }
 
     let key_value = store.keys.get(&name).unwrap();
@@ -189,39 +199,35 @@ fn cmd_use(name: Option<String>) {
     }
 
     let mut json = if local_path.exists() {
-        read_json(&local_path)
+        read_json_or_default(&local_path)
     } else {
         serde_json::json!({})
     };
 
     json["env"]["ANTHROPIC_API_KEY"] = serde_json::Value::String(key_value.clone());
-    write_json(&local_path, &json);
+    write_json(&local_path, &json)?;
 
     let folder = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".to_string());
     println!("Using '{name}' for folder: {folder}");
+    Ok(())
 }
 
 /// Rename a key
-fn cmd_rename() {
-    cmd_rename_with(None);
-}
-
-/// Rename a key with optional pre-selected name
-fn cmd_rename_with(pre_selected: Option<String>) {
+fn cmd_rename() -> Result<()> {
     let mut store = KeysStore::load();
 
     if store.keys.is_empty() {
         eprintln!("No keys saved.");
-        return;
+        return Ok(());
     }
 
-    let old_name = pre_selected.unwrap_or_else(|| select_key(&store, "Select key to rename"));
+    let old_name = select_key(&store, "Select key to rename")?;
 
     if !store.keys.contains_key(&old_name) {
         eprintln!("Key '{old_name}' not found.");
-        return;
+        return Ok(());
     }
 
     println!("Renaming key: '{old_name}'");
@@ -229,21 +235,21 @@ fn cmd_rename_with(pre_selected: Option<String>) {
     let new_name: String = Input::with_theme(&theme)
         .with_prompt("New name")
         .interact_text()
-        .unwrap();
+        .context("Input cancelled")?;
 
     if new_name.is_empty() {
         eprintln!("Name cannot be empty.");
-        return;
+        return Ok(());
     }
 
     if new_name == old_name {
         println!("Name unchanged.");
-        return;
+        return Ok(());
     }
 
     if store.keys.contains_key(&new_name) {
         eprintln!("Key '{new_name}' already exists.");
-        return;
+        return Ok(());
     }
 
     if let Some(value) = store.keys.remove(&old_name) {
@@ -251,9 +257,10 @@ fn cmd_rename_with(pre_selected: Option<String>) {
         if store.active.as_deref() == Some(&old_name) {
             store.active = Some(new_name.clone());
         }
-        store.save();
+        store.save()?;
         println!("Renamed '{old_name}' -> '{new_name}'.");
     }
+    Ok(())
 }
 
 /// Check all keys by calling API
@@ -286,19 +293,22 @@ fn cmd_status() {
     }
 }
 
-fn cmd_remove(name: Option<String>) {
+fn cmd_remove(name: Option<String>) -> Result<()> {
     let mut store = KeysStore::load();
 
     if store.keys.is_empty() {
         eprintln!("No keys saved.");
-        return;
+        return Ok(());
     }
 
-    let name = name.unwrap_or_else(|| select_key(&store, "Select key to remove"));
+    let name = match name {
+        Some(n) => n,
+        None => select_key(&store, "Select key to remove")?,
+    };
 
     if !store.keys.contains_key(&name) {
         eprintln!("Key '{name}' not found.");
-        return;
+        return Ok(());
     }
 
     store.keys.remove(&name);
@@ -313,5 +323,6 @@ fn cmd_remove(name: Option<String>) {
         println!("Removed '{name}'.");
     }
 
-    store.save();
+    store.save()?;
+    Ok(())
 }

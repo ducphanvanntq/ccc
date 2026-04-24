@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
@@ -7,85 +9,80 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const SETTINGS_FILE: &str = "settings.local.json";
 pub const REPO: &str = "ducphanvanntq/ccc";
 
-pub fn ccc_home() -> PathBuf {
+pub fn ccc_home() -> Result<PathBuf> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .expect("Cannot determine home directory");
-    Path::new(&home).join(".ccc")
+        .context("Cannot determine home directory (USERPROFILE or HOME not set)")?;
+    Ok(Path::new(&home).join(".ccc"))
 }
 
-pub fn default_claude_dir() -> PathBuf {
-    ccc_home().join(".claude")
+pub fn default_claude_dir() -> Result<PathBuf> {
+    Ok(ccc_home()?.join(".claude"))
 }
 
-pub fn default_settings_path() -> PathBuf {
-    default_claude_dir().join(SETTINGS_FILE)
+pub fn default_settings_path() -> Result<PathBuf> {
+    Ok(default_claude_dir()?.join(SETTINGS_FILE))
 }
 
 pub fn local_settings_path() -> PathBuf {
     Path::new(".claude").join(SETTINGS_FILE)
 }
 
-pub fn keys_path() -> PathBuf {
-    ccc_home().join("keys.json")
+pub fn keys_path() -> Result<PathBuf> {
+    Ok(ccc_home()?.join("keys.json"))
 }
 
-pub fn read_json(path: &Path) -> Value {
-    let content = fs::read_to_string(path).unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to read {}: {e}", path.display());
-        "{}".to_string()
-    });
-    serde_json::from_str(&content).unwrap_or_else(|e| {
-        eprintln!("Warning: Invalid JSON in {}: {e}", path.display());
-        Value::Object(serde_json::Map::new())
-    })
+pub fn read_json(path: &Path) -> Result<Value> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("Invalid JSON in {}", path.display()))
 }
 
-pub fn write_json(path: &Path, value: &Value) {
-    let pretty = serde_json::to_string_pretty(value).expect("Failed to serialize settings");
-    fs::write(path, pretty).expect("Failed to write settings");
+/// Read JSON, returning empty object on any error (for non-critical reads)
+pub fn read_json_or_default(path: &Path) -> Value {
+    read_json(path).unwrap_or_else(|_| Value::Object(serde_json::Map::new()))
+}
+
+pub fn write_json(path: &Path, value: &Value) -> Result<()> {
+    let pretty = serde_json::to_string_pretty(value)
+        .context("Failed to serialize JSON")?;
+    fs::write(path, pretty)
+        .with_context(|| format!("Failed to write {}", path.display()))
 }
 
 // Keys store: { active: "name", keys: { "name": "sk-..." } }
+#[derive(Serialize, Deserialize, Default)]
 pub struct KeysStore {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<String>,
+    #[serde(default)]
     pub keys: BTreeMap<String, String>,
 }
 
 impl KeysStore {
     pub fn load() -> Self {
-        let path = keys_path();
+        let path = match keys_path() {
+            Ok(p) => p,
+            Err(_) => return KeysStore::default(),
+        };
         if !path.exists() {
-            return KeysStore { active: None, keys: BTreeMap::new() };
+            return KeysStore::default();
         }
-        let json = read_json(&path);
-        let active = json["active"].as_str().map(String::from);
-        let keys = json["keys"]
-            .as_object()
-            .map(|map| {
-                map.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-            .unwrap_or_default();
-        KeysStore { active, keys }
+        match read_json(&path) {
+            Ok(json) => serde_json::from_value(json).unwrap_or_default(),
+            Err(_) => KeysStore::default(),
+        }
     }
 
-    pub fn save(&self) {
-        let path = keys_path();
+    pub fn save(&self) -> Result<()> {
+        let path = keys_path()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).ok();
         }
-        let mut map = serde_json::Map::new();
-        if let Some(active) = &self.active {
-            map.insert("active".into(), Value::String(active.clone()));
-        }
-        let keys_obj: serde_json::Map<String, Value> = self.keys
-            .iter()
-            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
-            .collect();
-        map.insert("keys".into(), Value::Object(keys_obj));
-        write_json(&path, &Value::Object(map));
+        let value = serde_json::to_value(self)
+            .context("Failed to serialize keys")?;
+        write_json(&path, &value)
     }
 
     pub fn get_active_key(&self) -> Option<&String> {
