@@ -2,70 +2,106 @@ use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
-use crate::config::{ccc_home, default_settings_path, local_settings_path, read_json_or_default, SETTINGS_FILE};
-
-fn check(label: &str, ok: bool, detail: &str) {
-    if ok {
-        println!("  [OK] {label}: {detail}");
-    } else {
-        println!("  [!!] {label}: {detail}");
-    }
-}
+use crate::config::{ccc_home, default_settings_path, local_settings_path, read_json_or_default, SETTINGS_FILE, VERSION};
+use crate::ui;
 
 pub fn run() -> Result<()> {
-    println!("ccc doctor\n");
+    println!();
+    ui::print_header(&ui::ICON_DOC, &format!("ccc doctor v{VERSION}"));
 
-    // 1. Check Claude Code installed
+    let mut pass = 0;
+    let mut fail = 0;
+
+    // 1. Claude Code installed
     let claude_found = find_claude();
     match &claude_found {
-        Some(path) => check("Claude Code", true, path),
-        None => check("Claude Code", false, "not found. Install from https://claude.ai/download"),
+        Some(path) => { ui::print_check(true, "Claude Code", path); pass += 1; }
+        None => { ui::print_check(false, "Claude Code", "not found"); fail += 1; }
     }
 
-    // 2. Check ccc home
+    // 2. ccc home
     let home = ccc_home()?;
-    check("ccc home", home.exists(), &home.display().to_string());
+    if home.exists() {
+        ui::print_check(true, "ccc home", &home.display().to_string());
+        pass += 1;
+    } else {
+        ui::print_check(false, "ccc home", "not found");
+        fail += 1;
+    }
 
-    // 3. Check global default config
+    ui::print_separator();
+
+    // 3. Global config
     let global_path = default_settings_path()?;
-    let global_ok = global_path.exists();
-    if global_ok {
-        check("Global config", true, &global_path.display().to_string());
+    if global_path.exists() {
+        ui::print_check(true, "Global config", &global_path.display().to_string());
+        pass += 1;
 
         let json = read_json_or_default(&global_path);
         let has_key = json["env"]["ANTHROPIC_API_KEY"]
             .as_str()
             .is_some_and(|k| !k.is_empty());
-        check("API key (global)", has_key, if has_key { "set" } else { "not set. Run 'ccc key' to set" });
+        if has_key {
+            ui::print_check(true, "API key", "set (global)");
+            pass += 1;
+        } else {
+            ui::print_check(false, "API key", "not set. Run 'ccc key'");
+            fail += 1;
+        }
     } else {
-        check("Global config", false, "not found. Run install script first");
+        ui::print_check(false, "Global config", "not found. Run install script");
+        fail += 1;
     }
 
-    // 4. Check local .claude folder
-    let local_dir = Path::new(".claude");
-    check(".claude folder (local)", local_dir.exists(), &local_dir.display().to_string());
+    ui::print_separator();
 
-    // 5. Check local settings
+    // 4. Local .claude folder
+    let local_dir = Path::new(".claude");
+    if local_dir.exists() {
+        ui::print_check(true, ".claude/", "found");
+        pass += 1;
+    } else {
+        ui::print_check(false, ".claude/", "not found. Run 'ccc init'");
+        fail += 1;
+    }
+
+    // 5. Local settings
     let local_path = local_settings_path();
-    let local_ok = local_path.exists();
-    if local_ok {
-        check(SETTINGS_FILE, true, &local_path.display().to_string());
+    if local_path.exists() {
+        ui::print_check(true, SETTINGS_FILE, &local_path.display().to_string());
+        pass += 1;
 
         let json = read_json_or_default(&local_path);
+
         let has_key = json["env"]["ANTHROPIC_API_KEY"]
             .as_str()
             .is_some_and(|k| !k.is_empty());
-        check("API key (local)", has_key, if has_key { "set" } else { "not set" });
+        if has_key {
+            ui::print_check(true, "API key", "set (local)");
+            pass += 1;
+        } else {
+            ui::print_check(false, "API key", "not set (local)");
+            fail += 1;
+        }
 
-        let has_url = json["env"]["ANTHROPIC_BASE_URL"]
+        let base_url = json["env"]["ANTHROPIC_BASE_URL"]
             .as_str()
-            .is_some_and(|u| !u.is_empty());
-        check("Base URL (local)", has_url, json["env"]["ANTHROPIC_BASE_URL"].as_str().unwrap_or("not set"));
+            .filter(|u| !u.is_empty());
+        match base_url {
+            Some(url) => { ui::print_check(true, "Base URL", url); pass += 1; }
+            None => { ui::print_check(false, "Base URL", "not set"); fail += 1; }
+        }
     } else {
-        check(SETTINGS_FILE, false, "not found. Run 'ccc init' to create");
+        ui::print_check(false, SETTINGS_FILE, "not found. Run 'ccc init'");
+        fail += 1;
     }
 
+    // Result
+    ui::print_separator();
+    ui::print_result_line(pass, fail);
+    ui::print_footer();
     println!();
+
     Ok(())
 }
 

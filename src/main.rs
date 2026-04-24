@@ -2,6 +2,7 @@ mod api;
 mod commands;
 mod config;
 mod tui;
+mod ui;
 mod utils;
 
 use anyhow::Result;
