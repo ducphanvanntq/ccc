@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 
-use crate::utils::{check_api_key, get_api_config, get_current_key, mask_key};
+use crate::api::{check_api_key, get_api_config, get_current_key};
+use crate::utils::mask_key;
 
 pub fn run() -> Result<()> {
     let api_key = match get_current_key() {

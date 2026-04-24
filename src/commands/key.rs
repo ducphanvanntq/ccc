@@ -2,8 +2,9 @@ use anyhow::{Context, Result};
 use dialoguer::{Select, Input, Confirm};
 use dialoguer::theme::ColorfulTheme;
 
+use crate::api::{check_api_key, get_api_config, validate_key_format};
 use crate::config::{local_settings_path, read_json_or_default, write_json, KeysStore};
-use crate::utils::{check_api_key, get_api_config, mask_key, validate_key_format};
+use crate::utils::mask_key;
 
 pub fn run(subcmd: Option<KeyCmd>) -> Result<()> {
     match subcmd {
