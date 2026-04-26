@@ -15,6 +15,7 @@ pub fn run(subcmd: Option<KeyCmd>) -> Result<()> {
         Some(KeyCmd::Remove { name }) => cmd_remove(name),
         Some(KeyCmd::Rename) => cmd_rename(),
         Some(KeyCmd::Status) => { cmd_status(); Ok(()) }
+        Some(KeyCmd::Test { value }) => { cmd_test(&value); Ok(()) }
         None => { cmd_menu(); Ok(()) }
     }
 }
@@ -49,6 +50,11 @@ pub enum KeyCmd {
     Rename,
     /// Check all keys status (test API connection)
     Status,
+    /// Test an API key without saving it
+    Test {
+        /// API key value to test
+        value: String,
+    },
 }
 
 
@@ -335,4 +341,28 @@ fn cmd_remove(name: Option<String>) -> Result<()> {
 
     store.save()?;
     Ok(())
+}
+
+fn cmd_test(value: &str) {
+    if let Err(e) = validate_key_format(value) {
+        eprintln!("Invalid key format: {e}");
+        return;
+    }
+
+    let (base_url, model) = get_api_config();
+
+    println!();
+    crate::ui::print_header(&crate::ui::ICON_SEARCH, "Key Test");
+    crate::ui::print_row("API", &base_url);
+    crate::ui::print_row("Model", &model);
+    crate::ui::print_row("Key", &mask_key(value));
+    crate::ui::print_separator();
+
+    let sp = crate::ui::spinner("Testing API key...");
+    let (ok, msg) = check_api_key(value);
+    sp.finish_and_clear();
+
+    crate::ui::print_check(ok, "Result", if ok { "Key is valid!" } else { &msg });
+    crate::ui::print_footer();
+    println!();
 }

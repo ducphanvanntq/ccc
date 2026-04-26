@@ -15,7 +15,14 @@ pub fn run() -> Result<()> {
     // 1. Claude Code installed
     let claude_found = find_claude();
     match &claude_found {
-        Some(path) => { ui::print_check(true, "Claude Code", path); pass += 1; }
+        Some(path) => {
+            ui::print_check(true, "Claude Code", path);
+            pass += 1;
+            if let Some(ver) = get_claude_version() {
+                ui::print_check(true, "Claude version", &ver);
+                pass += 1;
+            }
+        }
         None => { ui::print_check(false, "Claude Code", "not found"); fail += 1; }
     }
 
@@ -131,5 +138,17 @@ fn find_claude() -> Option<String> {
         }
     }
 
+    None
+}
+
+fn get_claude_version() -> Option<String> {
+    if let Ok(output) = Command::new("claude").arg("--version").output() {
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !version.is_empty() {
+                return Some(version);
+            }
+        }
+    }
     None
 }

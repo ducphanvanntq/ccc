@@ -10,9 +10,14 @@ pub const SETTINGS_FILE: &str = "settings.local.json";
 pub const REPO: &str = "ducphanvanntq/ccc";
 
 pub fn ccc_home() -> Result<PathBuf> {
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .context("Cannot determine home directory (USERPROFILE or HOME not set)")?;
+    let home = if cfg!(target_os = "windows") {
+        std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+    } else {
+        std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+    }
+    .context("Cannot determine home directory (HOME or USERPROFILE not set)")?;
     Ok(Path::new(&home).join(".ccc"))
 }
 
