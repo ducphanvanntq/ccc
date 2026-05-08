@@ -67,6 +67,7 @@ impl KeyTable {
                 } else { Action::None }
             }
             KeyCode::Char('s') => Action::Op(KeyOp::Status),
+            KeyCode::Left | KeyCode::Char('h') => Action::Switch(ModeSwitch::ToHome),
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.selected > 0 { self.selected -= 1; }
                 Action::None

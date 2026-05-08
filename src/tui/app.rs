@@ -3,8 +3,10 @@ use ratatui::{prelude::*, widgets::*};
 
 use super::component::{Action, KeyOp, ModeSwitch};
 use super::components::confirm_modal::ConfirmModal;
+use super::components::dashboard::Dashboard;
 use super::components::footer::{Footer, FooterMode};
 use super::components::header::Header;
+use super::components::home::HomeDashboard;
 use super::components::input_modal::InputModal;
 use super::components::key_table::KeyTable;
 use super::components::status_dashboard::StatusDashboard;
@@ -17,6 +19,8 @@ use crate::config::{local_settings_path, read_json_or_default, write_json, KeysS
 // ── App modes ──
 
 enum Mode {
+    Home,
+    KeyDashboard,
     Normal,
     AddName(InputModal),
     AddValue(InputModal),
@@ -37,7 +41,7 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         App {
-            mode: Mode::Normal,
+            mode: Mode::Home,
             key_table: KeyTable::load(),
             should_quit: false,
         }
@@ -57,6 +61,8 @@ impl App {
 
     pub fn handle_event(&mut self, key: KeyCode) {
         let action = match &mut self.mode {
+            Mode::Home => self.handle_home_event(key),
+            Mode::KeyDashboard => self.handle_dashboard_event(key),
             Mode::Normal => self.key_table.handle_event(key),
             Mode::AddName(modal) => modal.handle_event(key),
             Mode::AddValue(modal) => modal.handle_event(key),
@@ -66,6 +72,26 @@ impl App {
             Mode::Message(_) => Action::Switch(ModeSwitch::Normal),
         };
         self.process_action(action);
+    }
+
+    fn handle_home_event(&mut self, key: KeyCode) -> Action {
+        match key {
+            KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+            KeyCode::Char('k') | KeyCode::Char('1') | KeyCode::Right => Action::Switch(ModeSwitch::ToKeyDashboard),
+            KeyCode::Char('s') | KeyCode::Char('2') => Action::Switch(ModeSwitch::ToShow),
+            _ => Action::None,
+        }
+    }
+
+    fn handle_dashboard_event(&mut self, key: KeyCode) -> Action {
+        match key {
+            KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+            KeyCode::Char('a') => Action::Switch(ModeSwitch::AddName),
+            KeyCode::Char('s') => Action::Op(KeyOp::Status),
+            KeyCode::Right | KeyCode::Char('l') => Action::Switch(ModeSwitch::ToNormal),
+            KeyCode::Left | KeyCode::Char('h') => Action::Switch(ModeSwitch::ToHome),
+            _ => Action::None,
+        }
     }
 
     fn process_action(&mut self, action: Action) {
@@ -83,6 +109,17 @@ impl App {
     fn switch_mode(&mut self, switch: ModeSwitch) {
         self.mode = match switch {
             ModeSwitch::Normal => Mode::Normal,
+            ModeSwitch::ToNormal => Mode::Normal,
+            ModeSwitch::ToHome => Mode::Home,
+            ModeSwitch::ToKeyDashboard => Mode::KeyDashboard,
+            ModeSwitch::ToShow => {
+                // Execute show command and quit
+                if let Err(e) = crate::commands::show::run(crate::ShowTarget::Global) {
+                    eprintln!("Error: {e}");
+                }
+                self.should_quit = true;
+                Mode::Home
+            }
             ModeSwitch::AddName => {
                 Mode::AddName(InputModal::new(
                     "Add Key", "Key name (e.g. work, personal):", 1, 2,
@@ -247,6 +284,18 @@ impl App {
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
 
+        // Home is full-screen
+        if let Mode::Home = &self.mode {
+            HomeDashboard::new().render(frame, area);
+            return;
+        }
+
+        // Key Dashboard is full-screen
+        if let Mode::KeyDashboard = &self.mode {
+            Dashboard::new().render(frame, area);
+            return;
+        }
+
         // Status dashboard is full-screen
         if let Mode::Status(dashboard) = &self.mode {
             dashboard.render(frame, area);
@@ -271,6 +320,7 @@ impl App {
             Mode::AddName(_) | Mode::AddValue(_) | Mode::Rename(_) => FooterMode::Input,
             Mode::ConfirmRemove(_) => FooterMode::Confirm,
             Mode::Status(_) | Mode::Message(_) => FooterMode::Dismiss,
+            Mode::Home | Mode::KeyDashboard => FooterMode::Dismiss,
         };
         Footer { mode: footer_mode }.render(frame, layout[2]);
 

@@ -28,6 +28,10 @@ pub enum KeyOp {
 /// Mode transitions
 pub enum ModeSwitch {
     Normal,
+    ToNormal,
+    ToHome,
+    ToKeyDashboard,
+    ToShow,
     AddName,
     AddValue { name: String },
     Rename { old_name: String },

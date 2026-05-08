@@ -26,3 +26,4 @@ pub const TEXT_DIM: Color = Color::Rgb(120, 120, 140);
 pub const HIGHLIGHT_BG: Color = Color::Rgb(35, 40, 65);
 pub const SUCCESS: Color = Color::Rgb(80, 220, 120);
 pub const ERROR: Color = Color::Rgb(255, 100, 100);
+pub const ROW_ALT: Color = Color::Rgb(25, 25, 40);

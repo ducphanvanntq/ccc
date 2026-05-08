@@ -71,7 +71,7 @@ fn main() -> Result<()> {
         Some(Commands::Doctor) => commands::doctor::run()?,
         Some(Commands::Check) => commands::check::run()?,
         Some(Commands::Completions { shell }) => commands::completions::run(shell),
-        None => Cli::command().print_help()?,
+        None => tui::run_key_tui(),
     }
 
     Ok(())
