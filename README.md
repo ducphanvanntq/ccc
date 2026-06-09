@@ -32,6 +32,9 @@ ccc show config
 # Show global default config
 ccc show global
 
+# Install/update Claude Code permissions in ./.claude/settings.local.json
+ccc permission   # or: ccc p
+
 # Check API connection with current key
 ccc check
 

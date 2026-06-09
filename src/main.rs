@@ -45,6 +45,9 @@ enum Commands {
         #[command(subcommand)]
         subcmd: commands::config::ConfigCmd,
     },
+    /// Install or update Claude Code permissions
+    #[command(visible_alias = "p")]
+    Permission,
     /// Check for updates and install latest version
     Update,
     /// Check environment and config status
@@ -67,6 +70,7 @@ fn main() -> Result<()> {
         Some(Commands::Show { target }) => commands::show::run(target.unwrap_or(ShowTarget::Global))?,
         Some(Commands::Key { subcmd }) => commands::key::run(subcmd)?,
         Some(Commands::Config { subcmd }) => commands::config::run(subcmd)?,
+        Some(Commands::Permission) => commands::permission::run()?,
         Some(Commands::Update) => commands::update::run()?,
         Some(Commands::Doctor) => commands::doctor::run()?,
         Some(Commands::Check) => commands::check::run()?,
