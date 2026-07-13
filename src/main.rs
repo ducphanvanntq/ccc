@@ -30,6 +30,8 @@ enum Commands {
     Version,
     /// Copy default .claude config to current directory
     Init,
+    /// Copy .claude config with lite proxy env (prompts for auth token)
+    Lite,
     /// Show config (default: global)
     Show {
         #[command(subcommand)]
@@ -67,6 +69,7 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Version) => commands::version::run(),
         Some(Commands::Init) => commands::init::run()?,
+        Some(Commands::Lite) => commands::lite::run()?,
         Some(Commands::Show { target }) => commands::show::run(target.unwrap_or(ShowTarget::Global))?,
         Some(Commands::Key { subcmd }) => commands::key::run(subcmd)?,
         Some(Commands::Config { subcmd }) => commands::config::run(subcmd)?,

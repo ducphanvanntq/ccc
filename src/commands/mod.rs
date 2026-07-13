@@ -4,6 +4,7 @@ pub mod config;
 pub mod doctor;
 pub mod init;
 pub mod key;
+pub mod lite;
 pub mod permission;
 pub mod show;
 pub mod update;
