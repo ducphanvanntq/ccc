@@ -5,8 +5,8 @@ use crate::config::{default_claude_dir, read_json, write_json, SETTINGS_FILE};
 use crate::utils::{confirm, copy_dir_recursive, prompt};
 
 const LITE_BASE_URL: &str = "https://litellm-proxy-ep-cncyfugmcnadc6g4.a02.azurefd.net";
-const LITE_MODEL: &str = "claude-opus-4-8";
-const LITE_SMALL_FAST_MODEL: &str = "claude-haiku-4-5";
+const LITE_MODEL: &str = "claude-sonnet-5";
+const LITE_SMALL_FAST_MODEL: &str = "claude-sonnet-5";
 
 pub fn run() -> Result<()> {
     let source = default_claude_dir()?;

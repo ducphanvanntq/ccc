@@ -16,7 +16,7 @@ pub fn get_api_config() -> (String, String) {
             let model = json["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"]
                 .as_str()
                 .filter(|s| !s.is_empty())
-                .unwrap_or("claude-sonnet-4-20250514")
+                .unwrap_or("claude-sonnet-5")
                 .to_string();
             return (base_url, model);
         }
@@ -25,7 +25,7 @@ pub fn get_api_config() -> (String, String) {
 }
 
 fn default_api_config() -> (String, String) {
-    ("https://api.anthropic.com".to_string(), "claude-sonnet-4-20250514".to_string())
+    ("https://api.anthropic.com".to_string(), "claude-sonnet-5".to_string())
 }
 
 /// Check if an API key is valid by calling the API
