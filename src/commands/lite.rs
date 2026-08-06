@@ -5,8 +5,11 @@ use crate::config::{default_claude_dir, read_json, write_json, SETTINGS_FILE};
 use crate::utils::{confirm, copy_dir_recursive, prompt};
 
 const LITE_BASE_URL: &str = "https://litellm-proxy-ep-cncyfugmcnadc6g4.a02.azurefd.net";
-const LITE_MODEL: &str = "claude-sonnet-5";
+const LITE_MODEL: &str = "claude-sonnet-5[1m]";
 const LITE_SMALL_FAST_MODEL: &str = "claude-sonnet-5";
+const LITE_DEFAULT_SONNET_MODEL: &str = "claude-sonnet-4.6[1m]";
+const LITE_DEFAULT_OPUS_MODEL: &str = "claude-opus-4.7[1m]";
+const LITE_DEFAULT_HAIKU_MODEL: &str = "claude-haiku-4.5";
 
 pub fn run() -> Result<()> {
     let source = default_claude_dir()?;
@@ -39,6 +42,9 @@ pub fn run() -> Result<()> {
     env["ANTHROPIC_AUTH_TOKEN"] = serde_json::Value::String(auth_token);
     env["ANTHROPIC_MODEL"] = serde_json::Value::String(LITE_MODEL.to_string());
     env["ANTHROPIC_SMALL_FAST_MODEL"] = serde_json::Value::String(LITE_SMALL_FAST_MODEL.to_string());
+    env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = serde_json::Value::String(LITE_DEFAULT_SONNET_MODEL.to_string());
+    env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = serde_json::Value::String(LITE_DEFAULT_OPUS_MODEL.to_string());
+    env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = serde_json::Value::String(LITE_DEFAULT_HAIKU_MODEL.to_string());
     write_json(&target_settings, &json)?;
 
     println!("Copied default .claude config to current directory.");
